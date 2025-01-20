@@ -1,6 +1,31 @@
 import { Service } from 'typedi';
 import puppeteer from 'puppeteer';
 
+const minimal_args = [
+  '--autoplay-policy=user-gesture-required',
+  '--disable-background-networking',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-breakpad',
+  '--disable-client-side-phishing-detection',
+  '--disable-component-update',
+  '--disable-default-apps',
+  '--disable-dev-shm-usage',
+  '--disable-domain-reliability',
+  '--disable-extensions',
+  '--disable-features=AudioServiceOutOfProcess',
+  '--disable-hang-monitor',
+  '--disable-ipc-flooding-protection',
+  '--disable-notifications',
+  '--disable-offer-store-unmasked-wallet-cards',
+  '--disable-popup-blocking',
+  '--disable-print-preview',
+  '--disable-prompt-on-repost',
+  '--disable-renderer-backgrounding',
+  '--disable-setuid-sandbox',
+  '--no-sandbox',
+];
+
 @Service()
 export class InstaScrapperService {
   async getPostDescriptionByUrl(url: string): Promise<string | null> {
@@ -9,7 +34,10 @@ export class InstaScrapperService {
 
       const browser = await puppeteer.launch({
         // Handle M1 chip issue
-        executablePath: process.env.IS_MAC_M1 === 'true' ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' : '',
+        executablePath: process.env.IS_MAC_M1 === 'true'
+          ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+          : puppeteer.executablePath(),
+        args: minimal_args,
         headless: true,
       });
       const page = await browser.newPage();

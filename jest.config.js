@@ -10,4 +10,6 @@ module.exports = {
   setupFiles: ['./check-env.js', 'dotenv/config'],
   testEnvironment: 'node',
   watchPathIgnorePatterns: ['<rootDir>/dist/', '<rootDir>/node_modules/', 'globalConfig'],
+  testPathIgnorePatterns: ['<rootDir>/dist/', '<rootDir>/node_modules/', 'globalConfig'],
+  modulePathIgnorePatterns: ['<rootDir>/dist/'],
 };

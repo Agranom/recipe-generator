@@ -5,6 +5,7 @@
   "main": "index.ts",
   "scripts": {
     "prepare": "npx husky-init && husky install",
+    "postinstall": "puppeteer browsers install chrome",
     "test": "jest --passWithNoTests --forceExit --detectOpenHandles",
     "test:watch": "jest --passWithNoTests --watch ",
     "lint": "eslint . --ext .js,.ts",
@@ -16,7 +17,7 @@
     "dev": "nodemon index.ts",
     "start": "env node ./dist/index.js --  RECIPE_GENERATOR",
     "predeploy": "npm run lint && npm run test && npm run build",
-    "deploy": "npm run predeploy && gcloud run deploy recipe-generator --source=./ --platform managed --region us-west1 --no-allow-unauthenticated",
+    "deploy": "gcloud run deploy recipe-generator --source=./ --platform managed --region us-west1 --no-allow-unauthenticated",
     "pre-commit": "lint-staged"
   },
   "devDependencies": {
