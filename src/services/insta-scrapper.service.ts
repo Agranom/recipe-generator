@@ -2,27 +2,27 @@ import { Service } from 'typedi';
 import puppeteer from 'puppeteer';
 
 const minimal_args = [
-  '--autoplay-policy=user-gesture-required',
-  '--disable-background-networking',
-  '--disable-background-timer-throttling',
-  '--disable-backgrounding-occluded-windows',
-  '--disable-breakpad',
-  '--disable-client-side-phishing-detection',
-  '--disable-component-update',
-  '--disable-default-apps',
-  '--disable-dev-shm-usage',
-  '--disable-domain-reliability',
-  '--disable-extensions',
-  '--disable-features=AudioServiceOutOfProcess',
-  '--disable-hang-monitor',
-  '--disable-ipc-flooding-protection',
-  '--disable-notifications',
-  '--disable-offer-store-unmasked-wallet-cards',
-  '--disable-popup-blocking',
-  '--disable-print-preview',
-  '--disable-prompt-on-repost',
-  '--disable-renderer-backgrounding',
-  '--disable-setuid-sandbox',
+  // '--autoplay-policy=user-gesture-required',
+  // '--disable-background-networking',
+  // '--disable-background-timer-throttling',
+  // '--disable-backgrounding-occluded-windows',
+  // '--disable-breakpad',
+  // '--disable-client-side-phishing-detection',
+  // '--disable-component-update',
+  // '--disable-default-apps',
+  // '--disable-dev-shm-usage',
+  // '--disable-domain-reliability',
+  // '--disable-extensions',
+  // '--disable-features=AudioServiceOutOfProcess',
+  // '--disable-hang-monitor',
+  // '--disable-ipc-flooding-protection',
+  // '--disable-notifications',
+  // '--disable-offer-store-unmasked-wallet-cards',
+  // '--disable-popup-blocking',
+  // '--disable-print-preview',
+  // '--disable-prompt-on-repost',
+  // '--disable-renderer-backgrounding',
+  // '--disable-setuid-sandbox',
   '--no-sandbox',
 ];
 
@@ -42,9 +42,9 @@ export class InstaScrapperService {
       });
       const page = await browser.newPage();
 
-      await page.goto(url, {
-        waitUntil: 'networkidle2',
-      });
+      await page.setUserAgent('Mozilla/5.0 (Linux; Android 11; E24T Build/RQ3A.210705.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/122.0.6261.120 Safari/537.36');
+
+      await page.goto(url, { waitUntil: 'networkidle2' });
 
       // Extract content of the <meta property="og:title" ... />
       const description = await page.evaluate(() => {

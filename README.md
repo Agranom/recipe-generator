@@ -8,6 +8,12 @@ Technologies:
 - NodeJS
 
 
+## Initial setup
+
+Install husky
+
+`npx husky-init && husky install`
+
 ## Run locally during development:
 
 `npm run dev`

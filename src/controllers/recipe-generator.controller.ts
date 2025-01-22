@@ -1,6 +1,7 @@
 import { Inject, Service } from 'typedi';
 import { RecipeGeneratorService } from '../services/recipe-generator.service';
 import express from 'express';
+import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
 
 @Service()
 export class RecipeGeneratorController {
@@ -18,6 +19,10 @@ export class RecipeGeneratorController {
       return res.status(200).json(result);
     } catch (e) {
       console.error(`generateRecipe fails`, e);
+
+      if (e instanceof InvalidRecipeError) {
+        return res.status(400).send(e.message)
+      }
 
       res.status(500).send('Internal server error');
     }

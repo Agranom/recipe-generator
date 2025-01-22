@@ -5,6 +5,7 @@ import { Runnable } from '@langchain/core/runnables';
 import { recipeSchema, recipeValidationSchema } from '../constants/ai-schemas';
 import { AIMessagePromptTemplate, ChatPromptTemplate, SystemMessagePromptTemplate } from '@langchain/core/prompts';
 import { Recipe } from '../models/recipe.model';
+import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
 
 export interface RecipeGeneratorOptions {
   targetLanguage: string;
@@ -35,7 +36,7 @@ export class RecipeGeneratorService {
     const isRecipeValid = isRecipe && hasIngredients && hasInstructions;
 
     if (!isRecipeValid) {
-      throw new Error(`Invalid recipe: ${JSON.stringify({ isRecipe, hasIngredients, hasInstructions })}`);
+      throw new InvalidRecipeError(`Invalid recipe: ${JSON.stringify({ isRecipe, hasIngredients, hasInstructions })}`);
     }
 
     console.log('Recipe is valid');

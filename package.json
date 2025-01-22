@@ -4,7 +4,6 @@
   "description": "NodeJS Service to generate recipes from the socials",
   "main": "index.ts",
   "scripts": {
-    "prepare": "npx husky-init && husky install",
     "postinstall": "puppeteer browsers install chrome",
     "test": "jest --passWithNoTests --forceExit --detectOpenHandles",
     "test:watch": "jest --passWithNoTests --watch ",
