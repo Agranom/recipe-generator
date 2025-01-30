@@ -6,6 +6,8 @@ import { recipeSchema, recipeValidationSchema } from '../constants/ai-schemas';
 import { AIMessagePromptTemplate, ChatPromptTemplate, SystemMessagePromptTemplate } from '@langchain/core/prompts';
 import { Recipe } from '../models/recipe.model';
 import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
+import { InstaVideoManagerService } from './insta-video-manager.service';
+import { RecipeInstructionsService } from './recipe-instructions.service';
 
 export interface RecipeGeneratorOptions {
   targetLanguage: string;
@@ -17,7 +19,9 @@ export class RecipeGeneratorService {
   private readonly baseLlm: ChatOpenAI;
   private readonly validationLlmChain: Runnable;
 
-  constructor(@Inject() private instaScrapper: InstaScrapperService) {
+  constructor(@Inject() private instaScrapper: InstaScrapperService,
+              @Inject() private videoManagerService: InstaVideoManagerService,
+              @Inject() private recipeInstructionsService: RecipeInstructionsService) {
     this.baseLlm = new ChatOpenAI({
       model: 'gpt-4o-mini',
       temperature: 0,
@@ -27,19 +31,38 @@ export class RecipeGeneratorService {
 
   async generateFromUrl(url: string, options: RecipeGeneratorOptions = {} as RecipeGeneratorOptions): Promise<Recipe> {
     const { targetLanguage, useMetricSystem } = options;
-    const recipeText = await this.instaScrapper.getPostDescriptionByUrl(url);
+    let recipeText = await this.instaScrapper.getPostDescriptionByUrl(url);
 
     if (!recipeText) {
       throw new Error('Post description is empty');
     }
     const { isRecipe, hasIngredients, hasInstructions } = await this.validateRecipe(recipeText);
-    const isRecipeValid = isRecipe && hasIngredients && hasInstructions;
+    const isRecipeValid = isRecipe && hasIngredients;
+
+    console.log(`Recipe validated: ${JSON.stringify({ isRecipe, hasIngredients, hasInstructions })}`);
 
     if (!isRecipeValid) {
       throw new InvalidRecipeError(`Invalid recipe: ${JSON.stringify({ isRecipe, hasIngredients, hasInstructions })}`);
     }
 
-    console.log('Recipe is valid');
+    if (!hasInstructions) {
+      const videoPath = `video-${Date.now()}.mp4`;
+
+      try {
+        await this.videoManagerService.downloadVideo(url, videoPath);
+        const instructions = await this.recipeInstructionsService.generateInstructionsFromVideo(videoPath);
+
+        console.log(`Instructions generated`);
+
+        recipeText += `\n\nInstructions: ${instructions}`;
+      } catch (e: any) {
+        console.error(`Couldn't generate instructions from the video`, e.message);
+
+        throw e;
+      } finally {
+        this.videoManagerService.deleteVideo(videoPath);
+      }
+    }
 
     const recipeLlm = this.getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem });
 

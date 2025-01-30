@@ -2,10 +2,12 @@ import { Inject, Service } from 'typedi';
 import { RecipeGeneratorService } from '../services/recipe-generator.service';
 import express from 'express';
 import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
+import { RecipeInstructionsService } from '../services/recipe-instructions.service';
 
 @Service()
 export class RecipeGeneratorController {
-  constructor(@Inject() private recipeGenerator: RecipeGeneratorService) {
+  constructor(@Inject() private recipeGenerator: RecipeGeneratorService,
+              @Inject() private recipeInstructionsService: RecipeInstructionsService) {
   }
 
   async generateFromInstagram(req: express.Request, res: express.Response) {
@@ -15,6 +17,8 @@ export class RecipeGeneratorController {
         targetLanguage,
         useMetricSystem,
       });
+
+      // const result = await this.recipeInstructionsService.generateInstructionsFromVideo('video.mp4', '')
 
       return res.status(200).json(result);
     } catch (e) {
