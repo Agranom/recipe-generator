@@ -4,10 +4,11 @@ import { InstaScrapperService } from './insta-scrapper.service';
 import { Runnable } from '@langchain/core/runnables';
 import { recipeSchema, recipeValidationSchema } from '../constants/ai-schemas';
 import { AIMessagePromptTemplate, ChatPromptTemplate, SystemMessagePromptTemplate } from '@langchain/core/prompts';
-import { Recipe } from '../models/recipe.model';
+import { GeneratedRecipe, Recipe, RecipeInstruction, RecipeTimestamp } from '../models/recipe.model';
 import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
 import { InstaVideoManagerService } from './insta-video-manager.service';
 import { RecipeInstructionsService } from './recipe-instructions.service';
+import { RecipeHelper } from '../helpers/recipe.helper';
 
 export interface RecipeGeneratorOptions {
   targetLanguage: string;
@@ -25,6 +26,7 @@ export class RecipeGeneratorService {
     this.baseLlm = new ChatOpenAI({
       model: 'gpt-4o-mini',
       temperature: 0,
+      maxTokens: -1,
     });
     this.validationLlmChain = this.getValidationLlmChain();
   }
@@ -45,28 +47,51 @@ export class RecipeGeneratorService {
       throw new InvalidRecipeError(`Invalid recipe: ${JSON.stringify({ isRecipe, hasIngredients, hasInstructions })}`);
     }
 
-    if (!hasInstructions) {
-      const videoPath = `video-${Date.now()}.mp4`;
+    const videoPath = `video-${Date.now()}.mp4`;
+    let recipeTimestamps: RecipeTimestamp[] = [];
 
-      try {
-        await this.videoManagerService.downloadVideo(url, videoPath);
-        const instructions = await this.recipeInstructionsService.generateInstructionsFromVideo(videoPath);
+    try {
+      const { success: isVideoDownloaded, videoUrl } = await this.videoManagerService.downloadVideo(url, videoPath);
+
+      if (!hasInstructions) {
+        const {
+          instructions,
+          timestamps,
+        } = await this.recipeInstructionsService.generateInstructionsFromVideo(videoPath);
 
         console.log(`Instructions generated`);
 
         recipeText += `\n\nInstructions: ${instructions}`;
-      } catch (e: any) {
-        console.error(`Couldn't generate instructions from the video`, e.message);
-
-        throw e;
-      } finally {
-        this.videoManagerService.deleteVideo(videoPath);
+        recipeTimestamps = timestamps;
       }
+
+      const recipeLlm = this.getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem });
+
+      const generatedRecipe: GeneratedRecipe = await recipeLlm.invoke({ text: recipeText });
+
+      console.log(`Recipe has been generated`);
+
+      // Generate timestamps if instructions provided in the video description
+      if (hasInstructions && isVideoDownloaded) {
+        console.log(`Generating timestamps`);
+
+        const timestamps = await this.recipeInstructionsService.getTimestamps(generatedRecipe.instructions, videoPath);
+
+        console.log('timestamps', timestamps);
+
+        recipeTimestamps = timestamps;
+      }
+
+      const instructions: RecipeInstruction[] = RecipeHelper.mapInstructions(generatedRecipe.instructions, recipeTimestamps);
+
+      return { ...generatedRecipe, instructions, videoUrl };
+    } catch (e: any) {
+      console.error(`Couldn't generate the recipe: `, e.message);
+
+      throw e;
+    } finally {
+      this.videoManagerService.deleteVideo(videoPath);
     }
-
-    const recipeLlm = this.getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem });
-
-    return recipeLlm.invoke({ text: recipeText });
   }
 
   private async validateRecipe(recipeText: string): Promise<{

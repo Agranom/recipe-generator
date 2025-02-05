@@ -18,8 +18,6 @@ export class RecipeGeneratorController {
         useMetricSystem,
       });
 
-      // const result = await this.recipeInstructionsService.generateInstructionsFromVideo('video.mp4', '')
-
       return res.status(200).json(result);
     } catch (e) {
       console.error(`generateRecipe fails`, e);
