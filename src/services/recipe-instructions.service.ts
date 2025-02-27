@@ -1,18 +1,16 @@
-import { Service } from 'typedi';
-import { FileState, GoogleAIFileManager } from '@google/generative-ai/server';
+import { Inject, Service } from 'typedi';
 import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
-import { FileMetadataResponse } from '@google/generative-ai/dist/server/server';
-import fs from 'fs';
 import { instructionsWithTimeSchema, recipeTimestampsSchema } from '../constants/ai-schemas';
 import { RecipeTimestamp } from '../models/recipe.model';
+import { GoogleAiFileManagerService } from '../shared/services/google-ai-file-manager.service';
+import { RecipeVideoMetadata } from '../models/recipe-metadata.model';
 
 @Service()
 export class RecipeInstructionsService {
-  private readonly fileManager: GoogleAIFileManager;
   private readonly model: GenerativeModel;
   private readonly genAI: GoogleGenerativeAI;
 
-  constructor() {
+  constructor(@Inject() private fileManagerService: GoogleAiFileManagerService) {
     const apiKey = process.env.GOOGLE_API_KEY;
 
     if (!apiKey) {
@@ -20,7 +18,6 @@ export class RecipeInstructionsService {
     }
     this.genAI = new GoogleGenerativeAI(apiKey);
 
-    this.fileManager = new GoogleAIFileManager(apiKey);
     this.model = this.genAI.getGenerativeModel({
       model: 'gemini-1.5-flash',
       systemInstruction: 'You are a cooking video analyzer.',
@@ -35,9 +32,9 @@ export class RecipeInstructionsService {
     });
   }
 
-  async generateInstructionsFromVideo(videoPath: string): Promise<{ instructions: string; timestamps: RecipeTimestamp[] }> {
+  async generateInstructionsFromVideo(file: RecipeVideoMetadata): Promise<{ instructions: string; timestamps: RecipeTimestamp[] }> {
     try {
-      const file = await this.uploadVideo(videoPath);
+      await this.fileManagerService.waitUntilActive(file.fileId);
 
       const result = await this.model.generateContent({
         contents: [
@@ -86,8 +83,6 @@ export class RecipeInstructionsService {
         ],
       });
 
-      this.fileManager.deleteFile(file.name);
-
       return JSON.parse(result.response.text());
     } catch (e: any) {
       console.error(`Couldn't generate instructions from the video`, e.message);
@@ -99,9 +94,10 @@ export class RecipeInstructionsService {
   /**
    * Get video timestamps by given recipe instructions
    */
-  async getTimestamps(instructions: string[], videoPath: string): Promise<RecipeTimestamp[]> {
+  async getTimestamps(instructions: string[], file: RecipeVideoMetadata): Promise<RecipeTimestamp[]> {
     try {
-      const file = await this.uploadVideo(videoPath);
+      await this.fileManagerService.waitUntilActive(file.fileId);
+
       const structuredModel = this.genAI.getGenerativeModel({
         model: 'gemini-1.5-flash',
         systemInstruction: 'You are a cooking video analyzer.',
@@ -136,6 +132,7 @@ export class RecipeInstructionsService {
               Instructions: ${instructionsStr};
               
               Output the result based on the schema.
+              Avoid duplicated steps.
             `,
               },
             ],
@@ -146,7 +143,7 @@ export class RecipeInstructionsService {
       const response = JSON.parse(result.response.text());
 
       if (!response.timestamps) {
-        console.error(`Timestamps are empty`);
+        console.warn(`Timestamps are empty`);
 
         return [];
       }
@@ -157,39 +154,5 @@ export class RecipeInstructionsService {
 
       return [];
     }
-  }
-
-  private async uploadVideo(videoPath: string): Promise<FileMetadataResponse> {
-    if (!fs.existsSync(videoPath)) {
-      throw new Error(`Video does not exist under the path: ${videoPath}`);
-    }
-
-    const fileResult = await this.fileManager.uploadFile(videoPath, {
-      displayName: 'video',
-      mimeType: 'video/mp4',
-    });
-
-    console.log(`Video uploaded: ${fileResult.file.uri}`);
-
-    const name = fileResult.file.name;
-
-    let file = await this.fileManager.getFile(name);
-
-    console.log('Processing...');
-
-    while (file.state === FileState.PROCESSING) {
-      process.stdout.write('.');
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      // Fetch the file from the API again
-      file = await this.fileManager.getFile(name);
-    }
-
-    if (file.state === FileState.FAILED) {
-      throw new Error('Video processing failed.');
-    }
-
-    console.log(`\nVideo is ACTIVE`);
-
-    return fileResult.file;
   }
 }

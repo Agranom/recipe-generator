@@ -1,27 +1,28 @@
-import { Service } from 'typedi';
-import { IgDownloader } from 'ig-downloader';
+import { Inject, Service } from 'typedi';
 import axios from 'axios';
 import fs from 'fs';
+import { InstaScrapperService } from './insta-scrapper.service';
 
 @Service()
 export class InstaVideoManagerService {
-  async downloadVideo(postUrl: string, outputPath: string): Promise<{ success: boolean; videoUrl?: string }> {
+  constructor(@Inject() private instaScrapper: InstaScrapperService) {
+  }
+
+  async downloadVideo(videoUrl: string | undefined, outputPath: string): Promise<{ success: boolean; videoUrl?: string }> {
+    if (!videoUrl) {
+      console.error(`@ downloadVideo fail: videoUrl is null`);
+
+      return { success: false };
+    }
+
     try {
-      const data = await IgDownloader(postUrl);
-
-      if (!data.video_url) {
-        console.error(`@ ${postUrl} downloadVideo fail: video_url is null`);
-
-        return { success: false };
-      }
-
-      await this.downloadVideoByUrl(data.video_url, outputPath);
+      await this.downloadVideoByUrl(videoUrl, outputPath);
 
       console.log(`Video has been downloaded to path: ${outputPath}`);
 
-      return { success: true, videoUrl: data.video_url };
+      return { success: true, videoUrl };
     } catch (e: any) {
-      console.error(`@ ${postUrl} downloadVideo fail: ${e.message}`);
+      console.error(`@ downloadVideo fail: ${e.message}`);
 
       return { success: false };
     }

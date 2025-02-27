@@ -9,6 +9,8 @@ import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
 import { InstaVideoManagerService } from './insta-video-manager.service';
 import { RecipeInstructionsService } from './recipe-instructions.service';
 import { RecipeHelper } from '../helpers/recipe.helper';
+import { GoogleAiFileManagerService } from '../shared/services/google-ai-file-manager.service';
+import { RecipeMetadata, RecipeVideoMetadata } from '../models/recipe-metadata.model';
 
 export interface RecipeGeneratorOptions {
   targetLanguage: string;
@@ -22,7 +24,8 @@ export class RecipeGeneratorService {
 
   constructor(@Inject() private instaScrapper: InstaScrapperService,
               @Inject() private videoManagerService: InstaVideoManagerService,
-              @Inject() private recipeInstructionsService: RecipeInstructionsService) {
+              @Inject() private recipeInstructionsService: RecipeInstructionsService,
+              @Inject() private fileManagerService: GoogleAiFileManagerService) {
     this.baseLlm = new ChatOpenAI({
       model: 'gpt-4o-mini',
       temperature: 0,
@@ -31,33 +34,61 @@ export class RecipeGeneratorService {
     this.validationLlmChain = this.getValidationLlmChain();
   }
 
-  async generateFromUrl(url: string, options: RecipeGeneratorOptions = {} as RecipeGeneratorOptions): Promise<Recipe> {
-    const { targetLanguage, useMetricSystem } = options;
-    let recipeText = await this.instaScrapper.getPostDescriptionByUrl(url);
+  async getRecipeMetadata(postUrl: string): Promise<RecipeMetadata> {
+    const { description, videoUrl, imageUrl } = await this.instaScrapper.getPostMetadata(postUrl);
 
-    if (!recipeText) {
-      throw new Error('Post description is empty');
-    }
-    const { isRecipe, hasIngredients, hasInstructions } = await this.validateRecipe(recipeText);
-    const isRecipeValid = isRecipe && hasIngredients;
-
-    console.log(`Recipe validated: ${JSON.stringify({ isRecipe, hasIngredients, hasInstructions })}`);
-
-    if (!isRecipeValid) {
-      throw new InvalidRecipeError(`Invalid recipe: ${JSON.stringify({ isRecipe, hasIngredients, hasInstructions })}`);
+    if (!description) {
+      throw new InvalidRecipeError(`Post description is empty`);
     }
 
-    const videoPath = `video-${Date.now()}.mp4`;
-    let recipeTimestamps: RecipeTimestamp[] = [];
+    const { isRecipe, hasInstructions, hasIngredients } = await this.validateRecipe(description);
+
+    if (!isRecipe || (!videoUrl && !hasInstructions)) {
+      throw new InvalidRecipeError(`Invalid recipe: ${JSON.stringify({
+        isRecipe,
+        isVideoUrl: !!videoUrl,
+        hasInstructions,
+        hasIngredients,
+      })}`);
+    }
+
+    const defaultPreview: RecipeMetadata = { description, imageUrl, videoUrl, hasInstructions };
+
+    if (!videoUrl) {
+      return defaultPreview;
+    }
+
+    const videoName = `video-${Date.now()}.mp4`;
+
+    await this.videoManagerService.downloadVideo(videoUrl, videoName);
 
     try {
-      const { success: isVideoDownloaded, videoUrl } = await this.videoManagerService.downloadVideo(url, videoPath);
+      const { uri, name, mimeType } = await this.fileManagerService.uploadVideo(videoName);
 
-      if (!hasInstructions) {
+      return { ...defaultPreview, videoFile: { uri, fileId: name, fileName: videoName, mimeType } };
+    } catch (e: any) {
+      await this.videoManagerService.deleteVideo(videoName);
+
+      return defaultPreview;
+    }
+
+  }
+
+  async generateRecipe(metadata: RecipeMetadata, options: RecipeGeneratorOptions = {} as RecipeGeneratorOptions): Promise<Recipe> {
+    const { targetLanguage, useMetricSystem } = options;
+    const { description, hasInstructions, videoFile, videoUrl } = metadata;
+
+    let recipeTimestamps: RecipeTimestamp[] = [];
+    let recipeText = description;
+
+    try {
+      console.log('Start generating the recipe');
+
+      if (!hasInstructions && videoFile) {
         const {
           instructions,
           timestamps,
-        } = await this.recipeInstructionsService.generateInstructionsFromVideo(videoPath);
+        } = await this.recipeInstructionsService.generateInstructionsFromVideo(videoFile);
 
         console.log(`Instructions generated`);
 
@@ -67,15 +98,15 @@ export class RecipeGeneratorService {
 
       const recipeLlm = this.getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem });
 
-      const generatedRecipe: GeneratedRecipe = await recipeLlm.invoke({ text: recipeText });
+      const generatedRecipe: GeneratedRecipe = await recipeLlm.invoke({ text: recipeText }, { timeout: 15000 });
 
       console.log(`Recipe has been generated`);
 
       // Generate timestamps if instructions provided in the video description
-      if (hasInstructions && isVideoDownloaded) {
+      if (hasInstructions && videoFile) {
         console.log(`Generating timestamps`);
 
-        const timestamps = await this.recipeInstructionsService.getTimestamps(generatedRecipe.instructions, videoPath);
+        const timestamps = await this.recipeInstructionsService.getTimestamps(generatedRecipe.instructions, videoFile);
 
         console.log('timestamps', timestamps);
 
@@ -90,17 +121,29 @@ export class RecipeGeneratorService {
 
       throw e;
     } finally {
-      this.videoManagerService.deleteVideo(videoPath);
+      if (videoFile) {
+        this.deleteRecipeVideo(videoFile);
+      }
     }
   }
 
-  private async validateRecipe(recipeText: string): Promise<{
+  async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'fileId' | 'fileName'>): Promise<void> {
+    this.videoManagerService.deleteVideo(file.fileName);
+    await this.fileManagerService.deleteFileById(file.fileId);
+
+    console.log('Recipe video has been deleted');
+  }
+
+  private async validateRecipe(recipeText: string | null): Promise<{
     isRecipe: boolean;
     hasInstructions: boolean;
     hasIngredients: boolean
   }> {
+    if (!recipeText) {
+      return { isRecipe: false, hasInstructions: false, hasIngredients: false };
+    }
 
-    return this.validationLlmChain.invoke({ text: recipeText });
+    return this.validationLlmChain.invoke({ text: recipeText }, { timeout: 5000 });
   }
 
   private getValidationLlmChain(): Runnable {
