@@ -39,7 +39,9 @@
     "typescript": "^5.5.4"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.21.0",
     "@langchain/core": "^0.3.30",
+    "@langchain/google-genai": "^0.1.6",
     "@langchain/openai": "^0.3.17",
     "axios": "^1.7.9",
     "cors": "^2.8.5",

@@ -16,7 +16,9 @@ const port = process.env.PORT || 4000;
 (async () => {
   const controller = Container.get(RecipeGeneratorController);
 
-  app.post('/generate/instagram', controller.generateFromInstagram.bind(controller));
+  app.post('/getInstagramPostMetadata', controller.getInstagramPostMetadata.bind(controller));
+  app.post('/generateFromInstagram', controller.generateFromInstagram.bind(controller));
+  app.post('/deleteRecipeVideo', controller.deleteRecipeVideo.bind(controller));
 
   process.on('unhandledRejection', (error: Error, promise: Promise<unknown>) => {
     console.error('Unhandled Rejection at Promise', error, promise);

@@ -1,5 +1,7 @@
 import { Service } from 'typedi';
 import puppeteer from 'puppeteer';
+import { IgDownloader } from 'ig-downloader';
+import { XdtShortcodeMedia } from 'ig-downloader/dist/types/types/XdtShortcodeMedia';
 
 const minimal_args = [
   // '--autoplay-policy=user-gesture-required',
@@ -44,7 +46,7 @@ export class InstaScrapperService {
 
       await page.setUserAgent('Mozilla/5.0 (Linux; Android 11; E24T Build/RQ3A.210705.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/122.0.6261.120 Safari/537.36');
 
-      await page.goto(url, { waitUntil: 'networkidle2' });
+      await page.goto(url, { waitUntil: 'domcontentloaded' });
 
       // Extract content of the <meta property="og:title" ... />
       const description = await page.evaluate(() => {
@@ -62,7 +64,28 @@ export class InstaScrapperService {
 
       throw e;
     }
+  }
 
+  async getPostMediaData(postUrl: string): Promise<XdtShortcodeMedia | null> {
+    try {
+      const data = await IgDownloader(postUrl);
+
+      return data;
+    } catch (e: any) {
+      console.error(`Couldn't get post media: ${e.message}`);
+
+      return null;
+    }
+
+  }
+
+  async getPostMetadata(postUrl: string): Promise<{ videoUrl: string | undefined; description: string | null, imageUrl: string | undefined }> {
+    const [postDescription, mediaData] = await Promise.all([
+      this.getPostDescriptionByUrl(postUrl),
+      this.getPostMediaData(postUrl),
+    ]);
+
+    return { description: postDescription, videoUrl: mediaData?.video_url, imageUrl: mediaData?.thumbnail_src };
   }
 
 }

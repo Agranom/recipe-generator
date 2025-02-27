@@ -4,10 +4,28 @@ export interface RecipeIngredient {
   measurementUnit?: string;
 }
 
-export interface Recipe {
+export interface RecipeInstruction {
+  step: number;
+  text: string;
+  videoStartTime?: string;
+  videoEndTime?: string;
+}
+
+export interface RecipeTimestamp {
+  step: number;
+  startTime: string;
+  endTime: string;
+}
+
+export interface GeneratedRecipe {
   title: string;
   description: string;
-  cookingMethod: string;
+  instructions: string[];
   ingredients: RecipeIngredient[];
   portionsCount?: number;
+}
+
+export interface Recipe extends Omit<GeneratedRecipe, 'instructions'>{
+  instructions: RecipeInstruction[];
+  videoUrl?: string;
 }
