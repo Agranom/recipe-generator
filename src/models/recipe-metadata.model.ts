@@ -3,6 +3,8 @@ import { FileMetadataResponse } from '@google/generative-ai/server';
 export interface RecipeVideoMetadata extends Pick<FileMetadataResponse, 'mimeType' | 'uri'> {
   fileId: string;
   fileName: string;
+  url: string;
+  publicFileId?: string;
 }
 
 export interface RecipeMetadata {

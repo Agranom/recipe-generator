@@ -50,9 +50,9 @@ export class RecipeGeneratorController {
 
   async deleteRecipeVideo(req: express.Request, res: express.Response): Promise<unknown> {
     try {
-      const { fileName, fileId } = req.body;
+      const { publicFileId, fileId } = req.body;
 
-      await this.recipeGenerator.deleteRecipeVideo({ fileName, fileId });
+      await this.recipeGenerator.deleteRecipeVideo({ publicFileId, fileId });
 
       return res.sendStatus(204);
     } catch (e) {

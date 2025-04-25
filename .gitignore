@@ -48,4 +48,5 @@ Thumbs.db
 *.wmv
 
 .env
+service-account.json
 

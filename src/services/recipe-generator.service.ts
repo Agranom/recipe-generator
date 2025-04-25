@@ -6,11 +6,14 @@ import { recipeSchema, recipeValidationSchema } from '../constants/ai-schemas';
 import { AIMessagePromptTemplate, ChatPromptTemplate, SystemMessagePromptTemplate } from '@langchain/core/prompts';
 import { GeneratedRecipe, Recipe, RecipeInstruction, RecipeTimestamp } from '../models/recipe.model';
 import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
-import { InstaVideoManagerService } from './insta-video-manager.service';
+import { LocalVideoManagerService } from './local-video-manager.service';
 import { RecipeInstructionsService } from './recipe-instructions.service';
 import { RecipeHelper } from '../helpers/recipe.helper';
 import { GoogleAiFileManagerService } from '../shared/services/google-ai-file-manager.service';
 import { RecipeMetadata, RecipeVideoMetadata } from '../models/recipe-metadata.model';
+import { GoogleStorageService } from '../shared/services/google-storage.service';
+import crypto from 'crypto';
+
 
 export interface RecipeGeneratorOptions {
   targetLanguage: string;
@@ -23,7 +26,8 @@ export class RecipeGeneratorService {
   private readonly validationLlmChain: Runnable;
 
   constructor(@Inject() private instaScrapper: InstaScrapperService,
-              @Inject() private videoManagerService: InstaVideoManagerService,
+              @Inject() private localVideoManagerService: LocalVideoManagerService,
+              @Inject() private storageService: GoogleStorageService,
               @Inject() private recipeInstructionsService: RecipeInstructionsService,
               @Inject() private fileManagerService: GoogleAiFileManagerService) {
     this.baseLlm = new ChatOpenAI({
@@ -52,39 +56,50 @@ export class RecipeGeneratorService {
       })}`);
     }
 
-    const defaultPreview: RecipeMetadata = { description, imageUrl, videoUrl, hasInstructions };
+    const defaultPreview: RecipeMetadata = { description, imageUrl, hasInstructions };
 
     if (!videoUrl) {
       return defaultPreview;
     }
+    // Generate a hash from the postUrl to use as the video name
+    // Extract the URL part before the query parameters
+    const baseUrl = postUrl.split('?')[0];
+    const urlHash = crypto.createHash('md5').update(baseUrl).digest('hex');
+    const videoName = `${urlHash}.mp4`;
 
-    const videoName = `video-${Date.now()}.mp4`;
+    const result = await this.localVideoManagerService.downloadVideo(videoUrl, videoName);
 
-    await this.videoManagerService.downloadVideo(videoUrl, videoName);
+    if (!result.success) {
+      return defaultPreview;
+    }
 
     try {
-      const { uri, name, mimeType } = await this.fileManagerService.uploadVideo(videoName);
+      const [{ uri, name, mimeType }, { publicUrl, fileId: storageFileId }] = await Promise.all([
+        this.fileManagerService.uploadVideo(videoName),
+        this.storageService.uploadVideo(videoName)
+      ]);
 
-      return { ...defaultPreview, videoFile: { uri, fileId: name, fileName: videoName, mimeType } };
+      return { ...defaultPreview, videoFile: { uri, fileId: name, fileName: videoName, mimeType, url: publicUrl, publicFileId: storageFileId } };
     } catch (e: any) {
-      await this.videoManagerService.deleteVideo(videoName);
-
       return defaultPreview;
+    } finally {
+      this.localVideoManagerService.deleteVideo(videoName);
     }
 
   }
 
   async generateRecipe(metadata: RecipeMetadata, options: RecipeGeneratorOptions = {} as RecipeGeneratorOptions): Promise<Recipe> {
     const { targetLanguage, useMetricSystem } = options;
-    const { description, hasInstructions, videoFile, videoUrl } = metadata;
+    const { description, hasInstructions, videoFile } = metadata;
+    const { url: videoUrl } = videoFile || {};
 
     let recipeTimestamps: RecipeTimestamp[] = [];
     let recipeText = description;
 
     try {
-      console.log('Start generating the recipe');
 
       if (!hasInstructions && videoFile) {
+        console.log(`Generating instructions`);
         const {
           instructions,
           timestamps,
@@ -96,9 +111,11 @@ export class RecipeGeneratorService {
         recipeTimestamps = timestamps;
       }
 
+      console.log('Start generating the recipe');
+
       const recipeLlm = this.getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem });
 
-      const generatedRecipe: GeneratedRecipe = await recipeLlm.invoke({ text: recipeText }, { timeout: 15000 });
+      const generatedRecipe: GeneratedRecipe = await recipeLlm.invoke({ text: recipeText }, { timeout: 30000 });
 
       console.log(`Recipe has been generated`);
 
@@ -118,18 +135,45 @@ export class RecipeGeneratorService {
       return { ...generatedRecipe, instructions, videoUrl };
     } catch (e: any) {
       console.error(`Couldn't generate the recipe: `, e.message);
+      if (videoFile) {
+        // Delete the video file from the storage (Google Storage)
+        this.deleteRecipeVideo(videoFile);
+      }
 
       throw e;
     } finally {
       if (videoFile) {
-        this.deleteRecipeVideo(videoFile);
+        // Delete the video file from the file manager (Google AI)
+        this.deleteRecipeVideo({ fileId: videoFile.fileId });
       }
     }
   }
 
-  async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'fileId' | 'fileName'>): Promise<void> {
-    this.videoManagerService.deleteVideo(file.fileName);
-    await this.fileManagerService.deleteFileById(file.fileId);
+  async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'publicFileId' | 'fileId'>): Promise<void> { 
+    // Delete the file from the storage (Google Storage)
+    if (file.publicFileId) {
+      const decodedPublicFileId: string = decodeURIComponent(file.publicFileId);
+      try {
+        await this.storageService.deleteFile(decodedPublicFileId);
+      } catch (error: any) {
+        if ((error as any).code === 404) {
+          console.warn(`Storage object not found: ${decodedPublicFileId}`);
+        } else {
+          console.error(`Failed to delete storage object ${decodedPublicFileId}:`, error);
+          throw error;
+        }
+      }
+    }
+
+    // Delete the file from the file manager (Google AI)
+    if (file.fileId) {
+      try {
+        await this.fileManagerService.deleteFileById(file.fileId);
+      } catch (error: any) {
+        console.error(`Failed to delete file from file manager: ${file.fileId}:`, error);
+        throw error;
+      }
+    }
 
     console.log('Recipe video has been deleted');
   }

@@ -4,7 +4,7 @@ import fs from 'fs';
 import { InstaScrapperService } from './insta-scrapper.service';
 
 @Service()
-export class InstaVideoManagerService {
+export class LocalVideoManagerService {
   constructor(@Inject() private instaScrapper: InstaScrapperService) {
   }
 

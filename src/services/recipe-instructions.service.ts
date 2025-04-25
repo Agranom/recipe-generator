@@ -4,6 +4,7 @@ import { instructionsWithTimeSchema, recipeTimestampsSchema } from '../constants
 import { RecipeTimestamp } from '../models/recipe.model';
 import { GoogleAiFileManagerService } from '../shared/services/google-ai-file-manager.service';
 import { RecipeVideoMetadata } from '../models/recipe-metadata.model';
+import { uniqBy } from 'lodash';
 
 @Service()
 export class RecipeInstructionsService {
@@ -48,25 +49,6 @@ export class RecipeInstructionsService {
               },
             ],
           },
-     //      {
-     //        role: 'user',
-     //        parts: [
-     //          {
-     //            text: `
-     //  This is the video where the chief is cooking the recipe.
-     //  Your goal is to output step by step cooking instructions in a list format with no extra commentary based on the video context.
-     // Add to each step the corresponding timestamps (format mm:ss) to help create a  visually enhanced recipe.
-     //  Example of the output:
-     //    ------
-     //    1. Remove from heat and stir in a knob of butter and a generous amount of grated Parmesan cheese (00:33 - 00:43);
-     //    2. Begin adding the warm vegetable broth, one ladleful at a time, stirring continuously until each addition is absorbed before adding more. This process should take about 15-20 minutes (01:10 - 01:24);
-     //    3. Add the Arborio rice to the pan and toast for a couple of minutes, stirring constantly, until the grains are slightly translucent (01:33 - 01:53);
-     //    ------
-     //    Remember don't ask any question, just generate instructions.
-     //  `,
-     //          },
-     //        ],
-     //      },
           {
             role: 'user',
             parts: [
@@ -148,7 +130,8 @@ export class RecipeInstructionsService {
         return [];
       }
 
-      return response.timestamps;
+
+      return uniqBy<RecipeTimestamp>(response.timestamps, 'step');
     } catch (e: any) {
       console.error(`Couldn't get timestamps`);
 
