@@ -13,6 +13,7 @@ You are an expert in TypeScript, Node, Langchain and GCP.
 - Use JSDoc to document public classes and methods.
 - Don't leave blank lines within a function.
 - One export per file.
+- Add space above `return` statements
 
 ### Nomenclature
 

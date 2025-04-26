@@ -3,10 +3,15 @@ import { Storage, File } from '@google-cloud/storage';
 import fs from 'fs';
 import path from 'path';
 
-export interface VideoUploadResult {
+export interface UploadFileResult {
   fileId?: string;
   publicUrl: string;
-  size: number;
+}
+
+interface UploadFileOptions {
+  targetPrefix?: string;
+  contentType?: string;
+  makePublic?: boolean;
 }
 
 @Service()
@@ -23,34 +28,54 @@ export class GoogleStorageService {
     this.storage = new Storage();
   }
 
-  async uploadVideo(filePath: string): Promise<VideoUploadResult> {
+
+
+  async uploadFile(filePath: string, options: UploadFileOptions = {}): Promise<UploadFileResult> {
     if (!fs.existsSync(filePath)) {
-      throw new Error(`Video does not exist under the path: ${filePath}`);
+      throw new Error(`File does not exist under the path: ${filePath}`);
     }
 
     const fileName = path.basename(filePath);
-    const destFileName = `videos/${fileName}`;
+    const prefix = options.targetPrefix || '';
+    const destFileName = `${prefix}${fileName}`;
     
     try {
       const [file] = await this.storage.bucket(this.bucketName).upload(filePath, {
         destination: destFileName,
         metadata: {
-          contentType: 'video/mp4',
+          contentType: options.contentType || 'application/octet-stream',
         },
-        public: true,
+        public: options.makePublic ?? true,
       });
 
-
-      const [metadata] = await file.getMetadata();
       const publicUrl = file.publicUrl();
 
       return {
         fileId: file?.id,
         publicUrl,
-        size: Number(metadata.size),
       };
     } catch (err: any) {
-      console.error(`Upload video failed: ${err.message}`);
+      console.error(`Upload file failed: ${err.message}`);
+      throw err;
+    }
+  }
+
+  async moveFile(sourceFile: string, destinationFile: string): Promise<UploadFileResult> {
+    try {
+      // Move the file
+      const [file] = await this.storage.bucket(this.bucketName).file(sourceFile).move(destinationFile) as [File];
+      
+      // Ensure the file is public after moving
+      await file.makePublic();
+      
+      const publicUrl = file.publicUrl();
+      
+      return {
+        fileId: destinationFile, // Return the destination path as the fileId for future reference
+        publicUrl,
+      };
+    } catch (err: any) {
+      console.error(`Move file failed: ${err.message}`);
       throw err;
     }
   }
@@ -62,9 +87,5 @@ export class GoogleStorageService {
       console.error(`Delete file failed: ${err.message}`);
       throw err;
     }
-  }
-
-  private async makeFilePublic(file: File): Promise<void> {
-    await file.makePublic();
   }
 } 
