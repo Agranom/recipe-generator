@@ -27,11 +27,11 @@ export class RecipeGeneratorService {
   private readonly validationLlmChain: Runnable;
 
   constructor(@Inject() private instaScrapper: InstaScrapperService,
-              @Inject() private localVideoManagerService: LocalVideoManagerService,
-              @Inject() private storageService: GoogleStorageService,
-              @Inject() private recipeInstructionsService: RecipeInstructionsService,
-              @Inject() private videoProcessingService: VideoProcessingService,
-              @Inject() private fileManagerService: GoogleAiFileManagerService) {
+    @Inject() private localVideoManagerService: LocalVideoManagerService,
+    @Inject() private storageService: GoogleStorageService,
+    @Inject() private recipeInstructionsService: RecipeInstructionsService,
+    @Inject() private videoProcessingService: VideoProcessingService,
+    @Inject() private fileManagerService: GoogleAiFileManagerService) {
     this.baseLlm = new ChatOpenAI({
       model: 'gpt-4o-mini',
       temperature: 0,
@@ -142,18 +142,28 @@ export class RecipeGeneratorService {
     }
   }
 
-  async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'publicFileId' | 'fileId'>): Promise<void> { 
+  async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'publicFileId' | 'fileId'>): Promise<void> {
     // Delete the file from the file manager (Google AI)
     if (file.fileId) {
       try {
         await this.fileManagerService.deleteFileById(file.fileId);
+        console.log('Recipe video has been deleted from GenAI');
       } catch (error: any) {
         console.error(`Failed to delete file from file manager: ${file.fileId}:`, error);
         throw error;
       }
     }
 
-    console.log('Recipe video has been deleted from GenAI');
+    // Delete the file from the storage service (Google Cloud Storage)
+    if (file.publicFileId) {
+      try {
+        await this.storageService.deleteFile(file.publicFileId);
+        console.log('Recipe video has been deleted from GCS');
+      } catch (error: any) {
+        console.error(`Failed to delete file from GCS: ${file.publicFileId}:`, error);
+        throw error;
+      }
+    }
   }
 
   private async validateRecipe(recipeText: string | null): Promise<{
