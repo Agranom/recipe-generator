@@ -22,7 +22,7 @@ export class RecipeGeneratorController {
 
       return res.status(200).json(result);
     } catch (e: any) {
-      console.error(`getPostMetadata fails`, e);
+      console.error(`getInstagramPostMetadata fails`, e);
 
       if (e instanceof InvalidRecipeError) {
         return res.status(400).send(e.message);

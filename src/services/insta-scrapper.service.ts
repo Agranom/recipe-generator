@@ -1,7 +1,6 @@
 import { Service } from 'typedi';
 import puppeteer from 'puppeteer';
-import { IgDownloader } from 'ig-downloader';
-import { XdtShortcodeMedia } from 'ig-downloader/dist/types/types/XdtShortcodeMedia';
+import { retry } from '../shared/utils/retry.util';
 
 const minimal_args = [
   // '--autoplay-policy=user-gesture-required',
@@ -66,26 +65,132 @@ export class InstaScrapperService {
     }
   }
 
-  async getPostMediaData(postUrl: string): Promise<XdtShortcodeMedia | null> {
+  // method to get instagram post video url using puppeteer
+  async getPostVideoUrl(postUrl: string): Promise<string | null> {
     try {
-      const data = await IgDownloader(postUrl);
+      const browser = await puppeteer.launch({
+        // Handle M1 chip issue
+        executablePath: process.env.IS_MAC_M1 === 'true'
+          ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+          : puppeteer.executablePath(),
+        args: minimal_args,
+        headless: true,
+      });
 
-      return data;
-    } catch (e: any) {
-      console.error(`Couldn't get post media: ${e.message}`);
+      const page = await browser.newPage();
 
+      await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36');
+
+      // Set viewport to mimic a standard desktop display
+      await page.setViewport({ width: 1280, height: 800 });
+
+      // Enable request interception to capture video URLs from network requests
+      await page.setRequestInterception(true);
+      
+      let videoUrl: string | null = null;
+      
+      page.on('request', request => {
+        request.continue();
+      });
+      
+      page.on('response', async response => {
+        const url = response.url();
+        // Check for common video formats in responses
+        if (url.includes('.mp4') || url.includes('video') || 
+            url.includes('blob:') || url.includes('instagram.com/p/') || 
+            url.includes('cdninstagram')) {
+          const contentType = response.headers()['content-type'] || '';
+          if (contentType.includes('video') || url.endsWith('.mp4')) {
+            // Clean the URL by removing byte range parameters that make it unplayable
+            let cleanUrl = url;
+            if (url.includes('bytestart=') || url.includes('byteend=')) {
+              // Remove the byte range parameters
+              cleanUrl = url.split('&bytestart=')[0];
+              if (cleanUrl.includes('&byteend=')) {
+                cleanUrl = cleanUrl.split('&byteend=')[0];
+              }
+            }
+            videoUrl = cleanUrl;
+          }
+        }
+      });
+
+      // Navigate to the post and wait longer to ensure content loads
+      await page.goto(postUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+      
+      // If we haven't captured the video URL through network requests, try these alternative methods
+      if (!videoUrl) {
+        // Wait for video elements to be available
+        await page.waitForSelector('video', { timeout: 5000 }).catch(() => console.log('No video element found directly'));
+        
+        // Try multiple approaches to extract video URL
+        videoUrl = await page.evaluate(() => {
+          // Method 1: Direct video element
+          const videoElement = document.querySelector('video') as HTMLVideoElement | null;
+          if (videoElement && videoElement.src) return videoElement.src;
+          
+          // Method 2: Source inside video element
+          const source = document.querySelector('video source') as HTMLSourceElement | null;
+          if (source && source.src) return source.src;
+          
+          // Method 3: Look for videos inside iframes
+          const iframes = document.querySelectorAll('iframe');
+          for (const iframe of iframes) {
+            try {
+              const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+              if (iframeDoc) {
+                const iframeVideo = iframeDoc.querySelector('video') as HTMLVideoElement | null;
+                if (iframeVideo && iframeVideo.src) return iframeVideo.src;
+              }
+            } catch (e) {
+              // Cross-origin restrictions may prevent access
+              console.error('Error getting Instagram video URL:', e);
+            }
+          }
+          
+          // Method 4: Check for video URLs in JSON data embedded in the page
+          const scripts = document.querySelectorAll('script[type="application/ld+json"]');
+          for (const script of scripts) {
+            try {
+              const data = JSON.parse(script.textContent || '');
+              if (data.video?.contentUrl) return data.video.contentUrl;
+            } catch (e) {
+              // Invalid JSON
+              console.error('Error getting Instagram video URL:', e);
+            }
+          }
+          
+          return null;
+        });
+      }
+
+      await browser.close();
+
+      return videoUrl;
+    } catch (error) {
+      console.error('Error getting Instagram video URL:', error);
       return null;
     }
-
   }
 
-  async getPostMetadata(postUrl: string): Promise<{ videoUrl: string | undefined; description: string | null, imageUrl: string | undefined }> {
-    const [postDescription, mediaData] = await Promise.all([
-      this.getPostDescriptionByUrl(postUrl),
-      this.getPostMediaData(postUrl),
-    ]);
+  async getPostMetadata(postUrl: string): Promise<{ videoUrl: string | null; description: string | null, imageUrl: string | undefined }> {    
+    try {
+      const [postDescription, videoUrl] = await Promise.all([
+        retry(() => this.getPostDescriptionByUrl(postUrl), { maxAttempts: 2, delayMs: 2000 }),
+        this.getPostVideoUrl(postUrl),
+      ]);
 
-    return { description: postDescription, videoUrl: mediaData?.video_url, imageUrl: mediaData?.thumbnail_src };
+      // Clean the video URL if it still contains byte range parameters
+      let cleanVideoUrl = videoUrl;
+      if (videoUrl && (videoUrl.includes('bytestart=') || videoUrl.includes('byteend='))) {
+        cleanVideoUrl = videoUrl.split(/&bytestart=|&byteend=/)[0];
+      }
+
+      return { description: postDescription, videoUrl: cleanVideoUrl, imageUrl: undefined };
+    } catch (error) {
+      console.error('Error getting post metadata:', error);
+      return { description: null, videoUrl: null, imageUrl: undefined };
+    }
   }
 
 }
