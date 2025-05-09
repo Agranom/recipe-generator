@@ -14,7 +14,7 @@ import { RecipeMetadata, RecipeVideoMetadata } from '../models/recipe-metadata.m
 import { GoogleStorageService } from '../shared/services/google-storage.service';
 import crypto from 'crypto';
 import { VideoProcessingService } from './video-processing.service';
-
+import { retry } from '../shared/utils/retry.util';
 
 export interface RecipeGeneratorOptions {
   targetLanguage: string;
@@ -47,7 +47,7 @@ export class RecipeGeneratorService {
       throw new InvalidRecipeError(`Post description is empty`);
     }
 
-    const { isRecipe, hasInstructions, hasIngredients } = await this.validateRecipe(description);
+    const { isRecipe, hasInstructions, hasIngredients } = await retry(() => this.validateRecipe(description), { maxAttempts: 3, delayMs: 1000 });
 
     if (!isRecipe || (!videoUrl && !hasInstructions)) {
       throw new InvalidRecipeError(`Invalid recipe: ${JSON.stringify({
@@ -108,7 +108,7 @@ export class RecipeGeneratorService {
 
       const recipeLlm = this.getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem });
 
-      const generatedRecipe: GeneratedRecipe = await recipeLlm.invoke({ text: recipeText }, { timeout: 30000 });
+      const generatedRecipe: GeneratedRecipe = await retry(() => recipeLlm.invoke({ text: recipeText }, { timeout: 30000 }), { maxAttempts: 2, delayMs: 1000 });
 
       console.log(`Recipe has been generated`);
 
