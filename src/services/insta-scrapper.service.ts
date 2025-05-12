@@ -84,120 +84,114 @@ export class InstaScrapperService {
    * This implementation uses multiple strategies in sequence to get the video URL
    */
   private async getPostVideoUrl(postUrl: string): Promise<string | null> {
-      // 1. Try GraphQL API with various query hashes
-      const graphqlUrl = await this.getVideoUrlByGraphQL(postUrl);
-      if (graphqlUrl) {
-        console.log("Successfully retrieved video URL using GraphQL approach");
-        return graphqlUrl;
-      }
+    // 1. Try GraphQL API with various query hashes
+    const graphqlUrl = await this.getVideoUrlByGraphQL(postUrl);
+    if (graphqlUrl) {
+      console.log("Successfully retrieved video URL using GraphQL approach");
+      return graphqlUrl;
+    }
 
-      // 2. Try HTML API as fallback
-      const htmlUrl = await this.getVideoUrlByHTML(postUrl);
-      if (htmlUrl) {
-        console.log("Successfully retrieved video URL using HTML approach");
-        return htmlUrl;
-      }
+    // 2. Try HTML API as fallback
+    const htmlUrl = await this.getVideoUrlByHTML(postUrl);
+    if (htmlUrl) {
+      console.log("Successfully retrieved video URL using HTML approach");
+      return htmlUrl;
+    }
 
-      console.log("All direct API approaches failed, falling back to browser-based extraction");
-      return null;
+    console.log("All direct API approaches failed, falling back to browser-based extraction");
+    return null;
   }
 
   /**
    * Try to get the video URL using the GraphQL API with various query hashes
    */
   private async getVideoUrlByGraphQL(postUrl: string): Promise<string | null> {
-    try {
-      // Extract the shortcode from the post URL
-      const urlMatch = postUrl.match(/instagram\.com\/(p|reel|tv)\/([^/?]+)/);
-      if (!urlMatch || !urlMatch[2]) {
-        console.warn('Could not extract post shortcode from URL');
-        return null;
+    // Extract the shortcode from the post URL
+    const urlMatch = postUrl.match(/instagram\.com\/(p|reel|tv)\/([^/?]+)/);
+    if (!urlMatch || !urlMatch[2]) {
+      console.warn('Could not extract post shortcode from URL');
+      return null;
+    }
+    const shortcode = urlMatch[2];
+    console.log(`Extracting video URL for shortcode: ${shortcode}`);
+
+    const apiUrl = `https://www.instagram.com/graphql/query/?doc_id=8845758582119845&variables={"shortcode":"${shortcode}"}`;
+
+    const response = await axios.get(apiUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept': 'application/json',
+        'Referer': `https://www.instagram.com/p/${shortcode}/`,
+        'Origin': 'https://www.instagram.com',
+        'x-ig-app-id': '936619743392459',
+        'sec-fetch-site': 'same-origin',
+        'sec-fetch-mode': 'cors',
+        'x-requested-with': 'XMLHttpRequest'
+      },
+      timeout: 15000
+    });
+
+    // Check if we got a valid response
+    if (response.data?.data?.xdt_shortcode_media) {
+      const mediaData = response.data.data.xdt_shortcode_media;
+      console.log(`Successfully retrieved media data`);
+
+      // First priority: direct video_url if available
+      if (mediaData.video_url) {
+        // Clean the URL if needed (sometimes contains escape characters)
+        const cleanUrl = mediaData.video_url.replace(/\\u0026/g, '&');
+        return cleanUrl;
       }
-      const shortcode = urlMatch[2];
-      console.log(`Extracting video URL for shortcode: ${shortcode}`);
 
-      const apiUrl = `https://www.instagram.com/graphql/query/?doc_id=8845758582119845&variables={"shortcode":"${shortcode}"}`;
+      // Second priority: video_versions (sometimes present for reels)
+      if (mediaData.video_versions && mediaData.video_versions.length > 0) {
+        // Get the highest quality version
+        return mediaData.video_versions[0].url;
+      }
 
-      const response = await axios.get(apiUrl, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-          'Accept': 'application/json',
-          'Referer': `https://www.instagram.com/p/${shortcode}/`,
-          'Origin': 'https://www.instagram.com',
-          'x-ig-app-id': '936619743392459',
-          'sec-fetch-site': 'same-origin',
-          'sec-fetch-mode': 'cors',
-          'x-requested-with': 'XMLHttpRequest'
-        },
-        timeout: 15000
-      });
+      // Third priority: special fields for reels
+      if (mediaData.clips_metadata && mediaData.clips_metadata.source_url) {
+        return mediaData.clips_metadata.source_url;
+      }
 
-      // Check if we got a valid response
-      if (response.data?.data?.xdt_shortcode_media) {
-        const mediaData = response.data.data.xdt_shortcode_media;
-        console.log(`Successfully retrieved media data`);
-
-        // First priority: direct video_url if available
-        if (mediaData.video_url) {
-          // Clean the URL if needed (sometimes contains escape characters)
-          const cleanUrl = mediaData.video_url.replace(/\\u0026/g, '&');
-          return cleanUrl;
-        }
-
-        // Second priority: video_versions (sometimes present for reels)
-        if (mediaData.video_versions && mediaData.video_versions.length > 0) {
-          // Get the highest quality version
-          return mediaData.video_versions[0].url;
-        }
-
-        // Third priority: special fields for reels
-        if (mediaData.clips_metadata && mediaData.clips_metadata.source_url) {
-          return mediaData.clips_metadata.source_url;
-        }
-
-        // Fourth priority: check in children for carousel posts
-        if (mediaData.edge_sidecar_to_children?.edges) {
-          for (const edge of mediaData.edge_sidecar_to_children.edges) {
-            if (edge.node.is_video && edge.node.video_url) {
-              return edge.node.video_url;
-            }
-          }
-        }
-
-        // Fifth priority: extract from display resources
-        if (mediaData.display_resources && mediaData.display_resources.length > 0) {
-          const highestResResource = mediaData.display_resources.reduce(
-            (prev: any, current: any) => (current.config_width > prev.config_width) ? current : prev,
-            mediaData.display_resources[0]
-          );
-
-          // Sometimes video URLs can be derived from image URLs
-          if (highestResResource.src) {
-            const imgUrl = highestResResource.src;
-            // Try to convert image URL pattern to video URL pattern
-            const possibleVideoUrl = imgUrl
-              .replace('/t51.', '/v51.')  // Change type indicator
-              .replace('/e35/', '/e15/')  // Change encoding
-              .replace(/\.[^.]+$/, '.mp4'); // Change extension
-
-            try {
-              // Verify if this URL actually returns a video
-              const headResponse = await axios.head(possibleVideoUrl, { timeout: 5000 });
-              if (headResponse.status === 200 &&
-                (headResponse.headers['content-type']?.includes('video') ||
-                  possibleVideoUrl.endsWith('.mp4'))) {
-                return possibleVideoUrl;
-              }
-            } catch (e) {
-              // Not a valid video URL, continue
-            }
+      // Fourth priority: check in children for carousel posts
+      if (mediaData.edge_sidecar_to_children?.edges) {
+        for (const edge of mediaData.edge_sidecar_to_children.edges) {
+          if (edge.node.is_video && edge.node.video_url) {
+            return edge.node.video_url;
           }
         }
       }
-    } catch (error: any) {
-      // Check if it's an authentication error
-      throw error;
-      // Continue to the next query hash
+
+      // Fifth priority: extract from display resources
+      if (mediaData.display_resources && mediaData.display_resources.length > 0) {
+        const highestResResource = mediaData.display_resources.reduce(
+          (prev: any, current: any) => (current.config_width > prev.config_width) ? current : prev,
+          mediaData.display_resources[0]
+        );
+
+        // Sometimes video URLs can be derived from image URLs
+        if (highestResResource.src) {
+          const imgUrl = highestResResource.src;
+          // Try to convert image URL pattern to video URL pattern
+          const possibleVideoUrl = imgUrl
+            .replace('/t51.', '/v51.')  // Change type indicator
+            .replace('/e35/', '/e15/')  // Change encoding
+            .replace(/\.[^.]+$/, '.mp4'); // Change extension
+
+          try {
+            // Verify if this URL actually returns a video
+            const headResponse = await axios.head(possibleVideoUrl, { timeout: 5000 });
+            if (headResponse.status === 200 &&
+              (headResponse.headers['content-type']?.includes('video') ||
+                possibleVideoUrl.endsWith('.mp4'))) {
+              return possibleVideoUrl;
+            }
+          } catch (e) {
+            // Not a valid video URL, continue
+          }
+        }
+      }
     }
 
     return null;
@@ -265,8 +259,8 @@ export class InstaScrapperService {
 
     // If we haven't captured the video URL through network requests, try these alternative methods
     if (!videoUrl) {
-        // Wait for video elements to be available
-        await page.waitForSelector('video', { timeout: 5000 }).catch(() => console.log('No video element found directly'));
+      // Wait for video elements to be available
+      await page.waitForSelector('video', { timeout: 5000 }).catch(() => console.log('No video element found directly'));
 
       // Try multiple approaches to extract video URL
       videoUrl = await page.evaluate(() => {
@@ -281,7 +275,7 @@ export class InstaScrapperService {
         // Method 3: Look for videos inside iframes
         const iframes = document.querySelectorAll('iframe');
         for (const iframe of iframes) {
-              try {
+          try {
             const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
             if (iframeDoc) {
               const iframeVideo = iframeDoc.querySelector('video') as HTMLVideoElement | null;
@@ -293,20 +287,20 @@ export class InstaScrapperService {
           }
         }
 
-          // Method 4: Check for video URLs in JSON data embedded in the page
+        // Method 4: Check for video URLs in JSON data embedded in the page
         const scripts = document.querySelectorAll('script[type="application/ld+json"]');
         for (const script of scripts) {
-            try {
-              const data = JSON.parse(script.textContent || '');
-              if (data.video?.contentUrl) return data.video.contentUrl;
-            } catch (e) {
-              // Invalid JSON
+          try {
+            const data = JSON.parse(script.textContent || '');
+            if (data.video?.contentUrl) return data.video.contentUrl;
+          } catch (e) {
+            // Invalid JSON
             console.error('Error checking for video URLs in JSON data embedded in the page:', e);
-            }
           }
+        }
 
-          return null;
-        });
+        return null;
+      });
     }
 
     await browser.close();
@@ -322,39 +316,39 @@ export class InstaScrapperService {
     return videoUrl;
   }
 
-    /**
-   * Retrieves the description of an Instagram post by scraping the page.
-   * This method launches a headless browser, navigates to the given URL,
-   * and extracts the content of the <meta property="og:title" ... /> tag.
-   * 
-   * @param url - The URL of the Instagram post to scrape for the description.
-   * @returns A promise that resolves to the post description or null if not found.
-   * @throws An error if no description is found.
-   */
-    private async getPostDescriptionByUrl(url: string): Promise<string | null> {
-      console.log(`Start scrapping: ${url}`);
-  
-      const browser = await puppeteer.launch(this.config);
-      const page = await browser.newPage();
-  
-      await page.setUserAgent(userAgent);
-  
-      await page.goto(url, { waitUntil: 'domcontentloaded' });
-  
-      // Extract content of the <meta property="og:title" ... />
-      const description = await page.evaluate(() => {
-        const metaTag = document.querySelector('meta[property="og:title"]');
-        return metaTag ? metaTag.getAttribute('content') : null;
-      });
-  
-      console.log('Instagram Post/Reel Description:', description);
-  
-      await browser.close();
-  
-      if (!description) {
-        throw new Error('No description found');
-      }
-  
-      return description;
+  /**
+ * Retrieves the description of an Instagram post by scraping the page.
+ * This method launches a headless browser, navigates to the given URL,
+ * and extracts the content of the <meta property="og:title" ... /> tag.
+ * 
+ * @param url - The URL of the Instagram post to scrape for the description.
+ * @returns A promise that resolves to the post description or null if not found.
+ * @throws An error if no description is found.
+ */
+  private async getPostDescriptionByUrl(url: string): Promise<string | null> {
+    console.log(`Start scrapping: ${url}`);
+
+    const browser = await puppeteer.launch(this.config);
+    const page = await browser.newPage();
+
+    await page.setUserAgent(userAgent);
+
+    await page.goto(url, { waitUntil: 'domcontentloaded' });
+
+    // Extract content of the <meta property="og:title" ... />
+    const description = await page.evaluate(() => {
+      const metaTag = document.querySelector('meta[property="og:title"]');
+      return metaTag ? metaTag.getAttribute('content') : null;
+    });
+
+    console.log('Instagram Post/Reel Description:', description);
+
+    await browser.close();
+
+    if (!description) {
+      throw new Error('No description found');
     }
+
+    return description;
+  }
 }
