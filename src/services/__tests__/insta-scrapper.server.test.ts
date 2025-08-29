@@ -15,13 +15,15 @@ describe('InstaScrapperService', () => {
     expect(service).toBeTruthy();
   });
 
-  describe('getPostDescriptionByUrl', () => {
+  describe('getPostMetadata', () => {
 
     it('should return text from "content" meta by instagram url', async () => {
-      const url = 'https://www.instagram.com/reel/DBHExLYonRH/?utm_source=ig_web_copy_link';
-      const result = await service.getPostDescriptionByUrl(url);
+      const url = 'https://www.instagram.com/reel/DBHExLYonRH/';
+      const result = await service.getPostMetadata(url);
 
-      expect(result).toBeTruthy();
+      expect(result.description).toBeTruthy();
+      expect(result.videoUrl).toBeTruthy();
+      expect(result.imageUrl).toBeUndefined();
     });
   });
 });

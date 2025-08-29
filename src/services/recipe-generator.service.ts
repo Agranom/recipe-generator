@@ -41,7 +41,9 @@ export class RecipeGeneratorService {
   }
 
   async getRecipeMetadata(postUrl: string): Promise<RecipeMetadata> {
-    const { description, videoUrl, imageUrl } = await this.instaScrapper.getPostMetadata(postUrl);
+     // Extract the URL part before the query parameters
+    const baseUrl = postUrl.split('?')[0];
+    const { description, videoUrl, imageUrl } = await this.instaScrapper.getPostMetadata(baseUrl);
 
     if (!description) {
       throw new InvalidRecipeError(`Post description is empty`);
@@ -64,8 +66,6 @@ export class RecipeGeneratorService {
       return defaultPreview;
     }
     // Generate a hash from the postUrl to use as the video name
-    // Extract the URL part before the query parameters
-    const baseUrl = postUrl.split('?')[0];
     const urlHash = crypto.createHash('md5').update(baseUrl).digest('hex');
     const videoName = `${urlHash}.mp4`;
 
