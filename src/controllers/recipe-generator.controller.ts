@@ -2,12 +2,10 @@ import { Inject, Service } from 'typedi';
 import { RecipeGeneratorService } from '../services/recipe-generator.service';
 import express from 'express';
 import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
-import { InstaScrapperService } from '../services/insta-scrapper.service';
 
 @Service()
 export class RecipeGeneratorController {
-  constructor(@Inject() private recipeGenerator: RecipeGeneratorService,
-              @Inject() private instaScrapper: InstaScrapperService) {
+  constructor(@Inject() private recipeGenerator: RecipeGeneratorService) {
   }
 
   async getInstagramPostMetadata(req: express.Request, res: express.Response): Promise<unknown> {
@@ -50,9 +48,9 @@ export class RecipeGeneratorController {
 
   async deleteRecipeVideo(req: express.Request, res: express.Response): Promise<unknown> {
     try {
-      const { publicFileId, fileId } = req.body;
+      const { publicFileId } = req.body;
 
-      await this.recipeGenerator.deleteRecipeVideo({ publicFileId, fileId });
+      await this.recipeGenerator.deleteRecipeVideo({ publicFileId });
 
       return res.sendStatus(204);
     } catch (e) {

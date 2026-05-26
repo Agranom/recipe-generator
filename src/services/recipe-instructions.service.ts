@@ -1,75 +1,92 @@
 import { Inject, Service } from 'typedi';
-import { GenerativeModel, GoogleGenerativeAI } from '@google/generative-ai';
 import { instructionsWithTimeSchema, recipeTimestampsSchema } from '../constants/ai-schemas';
 import { RecipeTimestamp } from '../models/recipe.model';
-import { GoogleAiFileManagerService } from '../shared/services/google-ai-file-manager.service';
 import { RecipeVideoMetadata } from '../models/recipe-metadata.model';
 import { uniqBy } from 'lodash';
+import { VertexAI, GenerativeModel, GenerateContentResponse } from '@google-cloud/vertexai';
+import { GoogleStorageService } from '../shared/services/google-storage.service';
+import { tmpVideoDirectory } from '../shared/constants/video-directories';
+
+interface InstructionsWithTimeResponse {
+  instructions: string;
+  timestamps: RecipeTimestamp[];
+}
 
 @Service()
 export class RecipeInstructionsService {
   private readonly model: GenerativeModel;
-  private readonly genAI: GoogleGenerativeAI;
+  private readonly vertexAI: VertexAI;
 
-  constructor(@Inject() private fileManagerService: GoogleAiFileManagerService) {
+  constructor(@Inject() private storageService: GoogleStorageService) {
     const apiKey = process.env.GOOGLE_API_KEY;
 
     if (!apiKey) {
       throw new Error(`GOOGLE_API_KEY is not provided`);
     }
-    this.genAI = new GoogleGenerativeAI(apiKey);
 
-    this.model = this.genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
-      systemInstruction: 'You are a cooking video analyzer.',
+    this.vertexAI = new VertexAI({
+      project: 'boykom',
+      location: 'us-central1',
+    });
+
+    this.model = this.vertexAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      systemInstruction:
+        'You analyze cooking videos and return strict JSON that follows the provided response schema. Use only observable video evidence.',
       generationConfig: {
         temperature: 0,
-        topP: 0.95,
-        topK: 40,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 4096,
         responseSchema: instructionsWithTimeSchema,
-        responseMimeType: 'application/json'
+        responseMimeType: 'application/json',
       },
     });
   }
 
-  async generateInstructionsFromVideo(file: RecipeVideoMetadata): Promise<{ instructions: string; timestamps: RecipeTimestamp[] }> {
+  async generateInstructionsFromVideo(file: RecipeVideoMetadata): Promise<InstructionsWithTimeResponse> {
+
     try {
-      await this.fileManagerService.waitUntilActive(file.fileId);
+      const fileUri = this.storageService.getFileGsutilUrl(`${tmpVideoDirectory}/${file.fileName}`);
+      console.log(`Generating instructions from video: ${fileUri}`);
 
       const result = await this.model.generateContent({
         contents: [
           {
-            role: 'user', parts: [
-              {
-                fileData: {
-                  mimeType: file.mimeType,
-                  fileUri: file.uri,
-                },
-              },
-            ],
-          },
-          {
             role: 'user',
             parts: [
               {
+                fileData: {
+                  mimeType: 'video/mp4',
+                  fileUri,
+                },
+              },
+              {
                 text: `
-      This is the video where the chief is cooking the recipe.
-      Your goal is to output step by step cooking instructions in a list format with no extra commentary based on the video context.
-
-       Output the result based on the schema.
-      `,
+Analyze this cooking video and produce the recipe instructions with matching timestamps.
+Requirements:
+- Return only valid JSON that matches the response schema.
+- Write "instructions" as one string with numbered lines: "1. ...", "2. ...", "3. ...".
+- Include only cooking actions that are clearly shown or verbally explained in the video.
+- Keep each instruction concise, actionable, and in chronological order.
+- Create exactly one timestamp object for each numbered instruction.
+- Use the same step number in each timestamp object as the matching instruction line.
+- Use mm:ss for startTime and endTime, based on when the step starts and ends in the video.
+- Do not duplicate steps, merge repeated actions, or add commentary outside the schema.
+`,
               },
             ],
           },
         ],
       });
+      const text = this.getResponseText(result.response);
+      if (!text) {
+        throw new Error(`No text found in the response`);
+      }
+      const response = JSON.parse(text) as InstructionsWithTimeResponse;
 
-      return JSON.parse(result.response.text());
-    } catch (e: any) {
-      console.error(`Couldn't generate instructions from the video`, e.message);
-
-      throw e;
+      return response;
+    } catch (error: unknown) {
+      console.error(`Couldn't generate instructions from the video`, error);
+      throw error;
     }
   }
 
@@ -78,14 +95,17 @@ export class RecipeInstructionsService {
    */
   async getTimestamps(instructions: string[], file: RecipeVideoMetadata): Promise<RecipeTimestamp[]> {
     try {
-      await this.fileManagerService.waitUntilActive(file.fileId);
+      const fileUri = this.storageService.getFileGsutilUrl(`${tmpVideoDirectory}/${file.fileName}`);
+      console.log(`Getting timestamps from video: ${fileUri}`);
 
-      const structuredModel = this.genAI.getGenerativeModel({
-        model: 'gemini-1.5-flash',
+      const structuredModel = this.vertexAI.getGenerativeModel({
+        model: 'gemini-2.5-flash',
         systemInstruction: 'You are a cooking video analyzer.',
         generationConfig: {
-          ...this.model.generationConfig,
+          temperature: 0,
+          maxOutputTokens: 4096,
           responseSchema: recipeTimestampsSchema,
+          responseMimeType: 'application/json'
         },
       });
       const instructionsStr = instructions
@@ -97,8 +117,8 @@ export class RecipeInstructionsService {
             role: 'user', parts: [
               {
                 fileData: {
-                  mimeType: file.mimeType,
-                  fileUri: file.uri,
+                  mimeType: 'video/mp4',
+                  fileUri,
                 },
               },
             ],
@@ -122,7 +142,11 @@ export class RecipeInstructionsService {
         ],
       });
 
-      const response = JSON.parse(result.response.text());
+      const text = this.getResponseText(result.response);
+      if (!text) {
+        throw new Error(`No text found in the response`);
+      }
+      const response = JSON.parse(text);
 
       if (!response.timestamps) {
         console.warn(`Timestamps are empty`);
@@ -137,5 +161,9 @@ export class RecipeInstructionsService {
 
       return [];
     }
+  }
+
+  private getResponseText(result: GenerateContentResponse): string | null {
+    return result.candidates?.[0]?.content.parts?.[0]?.text ?? null;
   }
 }

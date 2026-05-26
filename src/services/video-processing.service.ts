@@ -1,10 +1,9 @@
-// src/services/video-processing.service.ts
 import { Service } from 'typedi';
 import { LocalVideoManagerService } from './local-video-manager.service';
-import { GoogleAiFileManagerService } from '../shared/services/google-ai-file-manager.service';
 import { GoogleStorageService } from '../shared/services/google-storage.service';
 import { RecipeVideoMetadata } from '../models/recipe-metadata.model';
 import path from 'path';
+import { tmpVideoDirectory, publishedVideoDirectory } from '../shared/constants/video-directories';
 
 /**
  * Handles staging & promotion of videos.
@@ -14,7 +13,6 @@ export class VideoProcessingService {
 
     constructor(
         private localVideoManager: LocalVideoManagerService,
-        private aiFileManager: GoogleAiFileManagerService,
         private storageService: GoogleStorageService
     ) { }
 
@@ -23,6 +21,8 @@ export class VideoProcessingService {
      * and return metadata.
      */
     async preloadVideo(videoUrl: string, videoName: string): Promise<RecipeVideoMetadata> {
+        console.log(`Preloading video: ${videoName}`);
+
         const videoPath = path.join(__dirname, videoName);
 
         try {
@@ -31,16 +31,11 @@ export class VideoProcessingService {
             if (!downloadResult.success) throw new Error('Failed to download video for staging');
 
             // 2) upload in parallel to both AI service and GCS staging prefix
-            const [aiMeta, storageMeta] = await Promise.all([
-                this.aiFileManager.uploadVideo(videoPath),
-                this.storageService.uploadFile(videoPath, { targetPrefix: 'videos/tmp/', makePublic: false, contentType: 'video/mp4' })
-            ]);
+            const storageMeta = await this.storageService.uploadFile(videoPath, { targetPrefix: `${tmpVideoDirectory}/`, makePublic: false, contentType: 'video/mp4' })
 
             return {
-                uri: aiMeta.uri,
-                fileId: aiMeta.name,
+                fileId: '',
                 fileName: videoName,
-                mimeType: aiMeta.mimeType,
                 url: storageMeta.publicUrl,
                 publicFileId: storageMeta.fileId
             };
@@ -63,7 +58,7 @@ export class VideoProcessingService {
 
         // Construct the destination file path - we need to include the filename
         const fileName = staged.fileName;
-        const destinationFile = `videos/published/${fileName}`;
+        const destinationFile = `${publishedVideoDirectory}/${fileName}`;
 
         // Move GCS object
         try {

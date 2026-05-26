@@ -1,0 +1,123 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "recipe-generator (dev)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder:recipe-generator}",
+      "presentation": { "group": "boykom-services", "order": 1 }
+    },
+    {
+      "name": "boy-kom-server (dev)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run start:dev",
+      "cwd": "${workspaceFolder:boy-kom-server}",
+      "presentation": { "group": "boykom-services", "order": 2 }
+    },
+    {
+      "name": "grocery-storage (dev)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm run dev",
+      "cwd": "${workspaceFolder:grocery-storage}",
+      "presentation": { "group": "boykom-services", "order": 3 }
+    },
+    {
+      "name": "boy-kom (dev)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm start",
+      "cwd": "${workspaceFolder:boy-kom}",
+      "presentation": { "group": "boykom-services", "order": 4 }
+    },
+    {
+      "name": "recipe-generator (debug)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder:recipe-generator}",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--inspect=9230",
+        "${workspaceFolder:recipe-generator}/node_modules/ts-node/dist/bin.js"
+      ],
+      "args": ["index.ts"],
+      "envFile": "${workspaceFolder:recipe-generator}/.env",
+      "console": "integratedTerminal",
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"],
+      "presentation": { "group": "boykom-services", "order": 1 }
+    },
+    {
+      "name": "boy-kom-server (debug)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder:boy-kom-server}",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--inspect=9231",
+        "-r",
+        "ts-node/register",
+        "-r",
+        "tsconfig-paths/register"
+      ],
+      "args": ["${workspaceFolder:boy-kom-server}/src/main.ts"],
+      "envFile": "${workspaceFolder:boy-kom-server}/.env",
+      "console": "integratedTerminal",
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"],
+      "presentation": { "group": "boykom-services", "order": 2 }
+    },
+    {
+      "name": "grocery-storage (debug)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder:grocery-storage}",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--inspect=9232",
+        "${workspaceFolder:grocery-storage}/node_modules/ts-node/dist/bin.js"
+      ],
+      "args": ["index.ts"],
+      "envFile": "${workspaceFolder:grocery-storage}/.env",
+      "console": "integratedTerminal",
+      "restart": true,
+      "skipFiles": ["<node_internals>/**"],
+      "presentation": { "group": "boykom-services", "order": 3 }
+    },
+    {
+      "name": "boy-kom (debug)",
+      "type": "node-terminal",
+      "request": "launch",
+      "command": "npm start",
+      "cwd": "${workspaceFolder:boy-kom}",
+      "presentation": { "group": "boykom-services", "order": 4 }
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Boykom: All services (dev)",
+      "configurations": [
+        "recipe-generator (dev)",
+        "boy-kom-server (dev)",
+        "grocery-storage (dev)",
+        "boy-kom (dev)"
+      ],
+      "stopAll": true,
+      "presentation": { "group": "boykom", "order": 1 }
+    },
+    {
+      "name": "Boykom: All services (debug)",
+      "configurations": [
+        "recipe-generator (debug)",
+        "boy-kom-server (debug)",
+        "grocery-storage (debug)",
+        "boy-kom (debug)"
+      ],
+      "stopAll": true,
+      "presentation": { "group": "boykom", "order": 2 }
+    }
+  ]
+}

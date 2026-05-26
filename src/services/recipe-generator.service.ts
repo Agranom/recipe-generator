@@ -9,7 +9,6 @@ import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
 import { LocalVideoManagerService } from './local-video-manager.service';
 import { RecipeInstructionsService } from './recipe-instructions.service';
 import { RecipeHelper } from '../helpers/recipe.helper';
-import { GoogleAiFileManagerService } from '../shared/services/google-ai-file-manager.service';
 import { RecipeMetadata, RecipeVideoMetadata } from '../models/recipe-metadata.model';
 import { GoogleStorageService } from '../shared/services/google-storage.service';
 import crypto from 'crypto';
@@ -31,7 +30,7 @@ export class RecipeGeneratorService {
     @Inject() private storageService: GoogleStorageService,
     @Inject() private recipeInstructionsService: RecipeInstructionsService,
     @Inject() private videoProcessingService: VideoProcessingService,
-    @Inject() private fileManagerService: GoogleAiFileManagerService) {
+  ) {
     this.baseLlm = new ChatOpenAI({
       model: 'gpt-4o-mini',
       temperature: 0,
@@ -71,9 +70,9 @@ export class RecipeGeneratorService {
 
 
     try {
-      const { publicFileId, fileName, mimeType, fileId, uri } = await this.videoProcessingService.preloadVideo(videoUrl, videoName);
+      const { publicFileId, fileName, fileId } = await this.videoProcessingService.preloadVideo(videoUrl, videoName);
 
-      return { ...defaultPreview, videoFile: { uri, fileId, fileName, mimeType, url: videoUrl, publicFileId } };
+      return { ...defaultPreview, videoFile: { fileId, fileName, url: videoUrl, publicFileId } };
     } catch (e: any) {
       return defaultPreview;
     } finally {
@@ -96,9 +95,10 @@ export class RecipeGeneratorService {
         const {
           instructions,
           timestamps,
-        } = await this.recipeInstructionsService.generateInstructionsFromVideo(videoFile);
+        } = await retry(() => this.recipeInstructionsService.generateInstructionsFromVideo(videoFile), { maxAttempts: 3, useExponentialBackoff: true });
 
-        console.log(`Instructions generated`);
+        console.log(`Instructions generated: ${instructions}`);
+        console.log(`Timestamps count: ${timestamps.length}`);
 
         recipeText += `\n\nInstructions: ${instructions}`;
         recipeTimestamps = timestamps;
@@ -134,25 +134,10 @@ export class RecipeGeneratorService {
       console.error(`Couldn't generate the recipe: `, e.message);
 
       throw e;
-    } finally {
-      if (videoFile) {
-        // Delete the video file from the file manager (Google AI)
-        this.deleteRecipeVideo({ fileId: videoFile.fileId });
-      }
     }
   }
 
-  async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'publicFileId' | 'fileId'>): Promise<void> {
-    // Delete the file from the file manager (Google AI)
-    if (file.fileId) {
-      try {
-        await this.fileManagerService.deleteFileById(file.fileId);
-        console.log('Recipe video has been deleted from GenAI');
-      } catch (error: any) {
-        console.error(`Failed to delete file from file manager: ${file.fileId}:`, error);
-        throw error;
-      }
-    }
+  async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'publicFileId'>): Promise<void> {
 
     // Delete the file from the storage service (Google Cloud Storage)
     if (file.publicFileId) {

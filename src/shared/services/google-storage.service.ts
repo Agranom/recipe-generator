@@ -28,9 +28,15 @@ export class GoogleStorageService {
     this.storage = new Storage();
   }
 
+  getFileGsutilUrl(destFileName: string): string {
+    return `gs://${this.bucketName}/${destFileName}`;
+  }
+
 
 
   async uploadFile(filePath: string, options: UploadFileOptions = {}): Promise<UploadFileResult> {
+    console.log(`Uploading file to Google Storage: ${filePath}`);
+    
     if (!fs.existsSync(filePath)) {
       throw new Error(`File does not exist under the path: ${filePath}`);
     }
@@ -49,6 +55,8 @@ export class GoogleStorageService {
       });
 
       const publicUrl = file.publicUrl();
+
+      console.log(`File uploaded successfully: ${publicUrl}`);
 
       return {
         fileId: file?.id,
