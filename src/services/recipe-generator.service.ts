@@ -3,8 +3,17 @@ import { ChatOpenAI } from '@langchain/openai';
 import { InstaScrapperService } from './insta-scrapper.service';
 import { Runnable } from '@langchain/core/runnables';
 import { recipeSchema, recipeValidationSchema } from '../constants/ai-schemas';
-import { AIMessagePromptTemplate, ChatPromptTemplate, SystemMessagePromptTemplate } from '@langchain/core/prompts';
-import { GeneratedRecipe, Recipe, RecipeInstruction, RecipeTimestamp } from '../models/recipe.model';
+import {
+  AIMessagePromptTemplate,
+  ChatPromptTemplate,
+  SystemMessagePromptTemplate,
+} from '@langchain/core/prompts';
+import {
+  GeneratedRecipe,
+  Recipe,
+  RecipeInstruction,
+  RecipeTimestamp,
+} from '../models/recipe.model';
 import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
 import { LocalVideoManagerService } from './local-video-manager.service';
 import { RecipeInstructionsService } from './recipe-instructions.service';
@@ -14,6 +23,8 @@ import { GoogleStorageService } from '../shared/services/google-storage.service'
 import crypto from 'crypto';
 import { VideoProcessingService } from './video-processing.service';
 import { retry } from '../shared/utils/retry.util';
+import { Logger } from '../shared/interfaces/logger.interface';
+import { LOGGER_TOKEN } from '../shared/services/logger.service';
 
 export interface RecipeGeneratorOptions {
   targetLanguage: string;
@@ -25,11 +36,13 @@ export class RecipeGeneratorService {
   private readonly baseLlm: ChatOpenAI;
   private readonly validationLlmChain: Runnable;
 
-  constructor(@Inject() private instaScrapper: InstaScrapperService,
+  constructor(
+    @Inject() private instaScrapper: InstaScrapperService,
     @Inject() private localVideoManagerService: LocalVideoManagerService,
     @Inject() private storageService: GoogleStorageService,
     @Inject() private recipeInstructionsService: RecipeInstructionsService,
     @Inject() private videoProcessingService: VideoProcessingService,
+    @Inject(LOGGER_TOKEN) private logger: Logger
   ) {
     this.baseLlm = new ChatOpenAI({
       model: 'gpt-4o-mini',
@@ -40,7 +53,7 @@ export class RecipeGeneratorService {
   }
 
   async getRecipeMetadata(postUrl: string): Promise<RecipeMetadata> {
-     // Extract the URL part before the query parameters
+    // Extract the URL part before the query parameters
     const baseUrl = postUrl.split('?')[0];
     const { description, videoUrl, imageUrl } = await this.instaScrapper.getPostMetadata(baseUrl);
 
@@ -48,15 +61,20 @@ export class RecipeGeneratorService {
       throw new InvalidRecipeError(`Post description is empty`);
     }
 
-    const { isRecipe, hasInstructions, hasIngredients } = await retry(() => this.validateRecipe(description), { maxAttempts: 3, delayMs: 1000 });
+    const { isRecipe, hasInstructions, hasIngredients } = await retry(
+      () => this.validateRecipe(description),
+      { maxAttempts: 3, delayMs: 1000 }
+    );
 
     if (!isRecipe || (!videoUrl && !hasInstructions)) {
-      throw new InvalidRecipeError(`Invalid recipe: ${JSON.stringify({
-        isRecipe,
-        isVideoUrl: !!videoUrl,
-        hasInstructions,
-        hasIngredients,
-      })}`);
+      throw new InvalidRecipeError(
+        `Invalid recipe: ${JSON.stringify({
+          isRecipe,
+          isVideoUrl: !!videoUrl,
+          hasInstructions,
+          hasIngredients,
+        })}`
+      );
     }
 
     const defaultPreview: RecipeMetadata = { description, imageUrl, hasInstructions };
@@ -68,9 +86,11 @@ export class RecipeGeneratorService {
     const urlHash = crypto.createHash('md5').update(baseUrl).digest('hex');
     const videoName = `${urlHash}.mp4`;
 
-
     try {
-      const { publicFileId, fileName, fileId } = await this.videoProcessingService.preloadVideo(videoUrl, videoName);
+      const { publicFileId, fileName, fileId } = await this.videoProcessingService.preloadVideo(
+        videoUrl,
+        videoName
+      );
 
       return { ...defaultPreview, videoFile: { fileId, fileName, url: videoUrl, publicFileId } };
     } catch (e: any) {
@@ -78,10 +98,12 @@ export class RecipeGeneratorService {
     } finally {
       this.localVideoManagerService.deleteVideo(videoName);
     }
-
   }
 
-  async generateRecipe(metadata: RecipeMetadata, options: RecipeGeneratorOptions = {} as RecipeGeneratorOptions): Promise<Recipe> {
+  async generateRecipe(
+    metadata: RecipeMetadata,
+    options: RecipeGeneratorOptions = {} as RecipeGeneratorOptions
+  ): Promise<Recipe> {
     const { targetLanguage, useMetricSystem } = options;
     const { description, hasInstructions, videoFile } = metadata;
 
@@ -89,63 +111,70 @@ export class RecipeGeneratorService {
     let recipeText = description;
 
     try {
-
       if (!hasInstructions && videoFile) {
-        console.log(`Generating instructions`);
-        const {
-          instructions,
-          timestamps,
-        } = await retry(() => this.recipeInstructionsService.generateInstructionsFromVideo(videoFile), { maxAttempts: 3, useExponentialBackoff: true });
+        this.logger.log(`Generating instructions`);
+        const { instructions, timestamps } = await retry(
+          () => this.recipeInstructionsService.generateInstructionsFromVideo(videoFile),
+          { maxAttempts: 3, useExponentialBackoff: true }
+        );
 
-        console.log(`Instructions generated: ${instructions}`);
-        console.log(`Timestamps count: ${timestamps.length}`);
+        this.logger.log(`Instructions generated: ${instructions}`);
+        this.logger.log(`Timestamps count: ${timestamps.length}`);
 
         recipeText += `\n\nInstructions: ${instructions}`;
         recipeTimestamps = timestamps;
       }
 
-      console.log('Start generating the recipe');
+      this.logger.log('Start generating the recipe');
 
       const recipeLlm = this.getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem });
 
-      const generatedRecipe: GeneratedRecipe = await retry(() => recipeLlm.invoke({ text: recipeText }, { timeout: 30000 }), { maxAttempts: 2, delayMs: 1000 });
+      const generatedRecipe: GeneratedRecipe = await retry(
+        () => recipeLlm.invoke({ text: recipeText }, { timeout: 30000 }),
+        { maxAttempts: 2, delayMs: 1000 }
+      );
 
-      console.log(`Recipe has been generated`);
+      this.logger.log(`Recipe has been generated`);
 
       // Generate timestamps if instructions provided in the video description
       if (hasInstructions && videoFile) {
-        console.log(`Generating timestamps`);
+        this.logger.log(`Generating timestamps`);
 
-        const timestamps = await this.recipeInstructionsService.getTimestamps(generatedRecipe.instructions, videoFile);
+        const timestamps = await this.recipeInstructionsService.getTimestamps(
+          generatedRecipe.instructions,
+          videoFile
+        );
 
         recipeTimestamps = timestamps;
       }
 
-      const instructions: RecipeInstruction[] = RecipeHelper.mapInstructions(generatedRecipe.instructions, recipeTimestamps);
+      const instructions: RecipeInstruction[] = RecipeHelper.mapInstructions(
+        generatedRecipe.instructions,
+        recipeTimestamps
+      );
 
       if (videoFile) {
         const { url: videoUrl } = await this.videoProcessingService.publishVideo(videoFile);
-        console.log('Recipe video has been published to GCS');
+        this.logger.log('Recipe video has been published to GCS');
         return { ...generatedRecipe, instructions, videoUrl };
       }
 
       return { ...generatedRecipe, instructions };
     } catch (e: any) {
-      console.error(`Couldn't generate the recipe: `, e.message);
+      this.logger.error(`Couldn't generate the recipe: `, { err: e });
 
       throw e;
     }
   }
 
   async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'publicFileId'>): Promise<void> {
-
     // Delete the file from the storage service (Google Cloud Storage)
     if (file.publicFileId) {
       try {
         await this.storageService.deleteFile(file.publicFileId);
-        console.log('Recipe video has been deleted from GCS');
+        this.logger.log('Recipe video has been deleted from GCS');
       } catch (error: any) {
-        console.error(`Failed to delete file from GCS: ${file.publicFileId}:`, error);
+        this.logger.error(`Failed to delete file from GCS: ${file.publicFileId}:`, { err: error });
         throw error;
       }
     }
@@ -154,7 +183,7 @@ export class RecipeGeneratorService {
   private async validateRecipe(recipeText: string | null): Promise<{
     isRecipe: boolean;
     hasInstructions: boolean;
-    hasIngredients: boolean
+    hasIngredients: boolean;
   }> {
     if (!recipeText) {
       return { isRecipe: false, hasInstructions: false, hasIngredients: false };
@@ -175,7 +204,10 @@ Text: {text}
     return prompt.pipe(this.baseLlm.withStructuredOutput(recipeValidationSchema));
   }
 
-  private getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem }: RecipeGeneratorOptions): Runnable {
+  private getRecipeGeneratorLlmChain({
+    targetLanguage,
+    useMetricSystem,
+  }: RecipeGeneratorOptions): Runnable {
     const prompt = ChatPromptTemplate.fromMessages([
       SystemMessagePromptTemplate.fromTemplate('You are a culinary expert.'),
       AIMessagePromptTemplate.fromTemplate(`
@@ -191,5 +223,4 @@ Text: {text}
 
     return prompt.pipe(this.baseLlm.withStructuredOutput(recipeSchema));
   }
-
 }

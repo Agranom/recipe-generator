@@ -1,7 +1,9 @@
-import { Service } from 'typedi';
+import { Inject, Service } from 'typedi';
 import puppeteer, { LaunchOptions } from 'puppeteer';
 import { retry } from '../shared/utils/retry.util';
 import axios from 'axios';
+import { LOGGER_TOKEN } from '../shared/services/logger.service';
+import { Logger } from '../shared/interfaces/logger.interface';
 
 const minimal_args = [
   // '--autoplay-policy=user-gesture-required',
@@ -28,17 +30,19 @@ const minimal_args = [
   '--no-sandbox',
 ];
 
-const userAgent = 'Mozilla/5.0 (Linux; Android 11; E24T Build/RQ3A.210705.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/122.0.6261.120 Safari/537.36';
+const userAgent =
+  'Mozilla/5.0 (Linux; Android 11; E24T Build/RQ3A.210705.001; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/122.0.6261.120 Safari/537.36';
 
 @Service()
 export class InstaScrapperService {
   private readonly config: LaunchOptions;
 
-  constructor() {
+  constructor(@Inject(LOGGER_TOKEN) private logger: Logger) {
     this.config = {
-      executablePath: process.env.IS_MAC_M1 === 'true'
-        ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-        : puppeteer.executablePath(),
+      executablePath:
+        process.env.IS_MAC_M1 === 'true'
+          ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+          : puppeteer.executablePath(),
       args: minimal_args,
       headless: true,
     };
@@ -48,22 +52,32 @@ export class InstaScrapperService {
    * Retrieves metadata from an Instagram post, including the description, video URL, and image URL.
    * This method attempts to fetch the post description and video URL concurrently using retry logic.
    * If the video URL contains byte range parameters, they are removed to clean the URL.
-   * 
+   *
    * @param postUrl - The URL of the Instagram post to scrape for metadata.
    * @returns A promise that resolves to an object containing the post description, video URL, and image URL.
    *          If any of these cannot be retrieved, they will be returned as null or undefined.
    */
-  async getPostMetadata(postUrl: string): Promise<{ videoUrl: string | null; description: string | null, imageUrl: string | undefined }> {
+  async getPostMetadata(
+    postUrl: string
+  ): Promise<{
+    videoUrl: string | null;
+    description: string | null;
+    imageUrl: string | undefined;
+  }> {
     try {
       const [postDescription, videoUrl] = await Promise.all([
-        retry(() => this.getPostDescriptionByUrl(postUrl), { maxAttempts: 3, delayMs: 2000 }).catch((error) => {
-          console.error('Error getting Instagram post description:', error);
-          return null;
-        }),
-        retry(() => this.getPostVideoUrl(postUrl), { maxAttempts: 3, delayMs: 2000 }).catch((error) => {
-          console.error('Error getting Instagram video URL:', error);
-          return null;
-        }),
+        retry(() => this.getPostDescriptionByUrl(postUrl), { maxAttempts: 3, delayMs: 2000 }).catch(
+          (error) => {
+            this.logger.error('Error getting Instagram post description:', { err: error });
+            return null;
+          }
+        ),
+        retry(() => this.getPostVideoUrl(postUrl), { maxAttempts: 3, delayMs: 2000 }).catch(
+          (error) => {
+            this.logger.error('Error getting Instagram video URL:', { err: error });
+            return null;
+          }
+        ),
       ]);
 
       // Clean the video URL if it still contains byte range parameters
@@ -74,7 +88,7 @@ export class InstaScrapperService {
 
       return { description: postDescription, videoUrl: cleanVideoUrl, imageUrl: undefined };
     } catch (error) {
-      console.error('Error getting post metadata:', error);
+      this.logger.error('Error getting post metadata:', { err: error });
       return { description: null, videoUrl: null, imageUrl: undefined };
     }
   }
@@ -87,18 +101,18 @@ export class InstaScrapperService {
     // 1. Try GraphQL API with various query hashes
     const graphqlUrl = await this.getVideoUrlByGraphQL(postUrl);
     if (graphqlUrl) {
-      console.log("Successfully retrieved video URL using GraphQL approach");
+      this.logger.log('Successfully retrieved video URL using GraphQL approach');
       return graphqlUrl;
     }
 
     // 2. Try HTML API as fallback
     const htmlUrl = await this.getVideoUrlByHTML(postUrl);
     if (htmlUrl) {
-      console.log("Successfully retrieved video URL using HTML approach");
+      this.logger.log('Successfully retrieved video URL using HTML approach');
       return htmlUrl;
     }
 
-    console.log("All direct API approaches failed, falling back to browser-based extraction");
+    this.logger.log('All direct API approaches failed, falling back to browser-based extraction');
     return null;
   }
 
@@ -109,32 +123,33 @@ export class InstaScrapperService {
     // Extract the shortcode from the post URL
     const urlMatch = postUrl.match(/instagram\.com\/(p|reel|tv)\/([^/?]+)/);
     if (!urlMatch || !urlMatch[2]) {
-      console.warn('Could not extract post shortcode from URL');
+      this.logger.warn('Could not extract post shortcode from URL');
       return null;
     }
     const shortcode = urlMatch[2];
-    console.log(`Extracting video URL for shortcode: ${shortcode}`);
+    this.logger.log(`Extracting video URL for shortcode: ${shortcode}`);
 
     const apiUrl = `https://www.instagram.com/graphql/query/?doc_id=8845758582119845&variables={"shortcode":"${shortcode}"}`;
 
     const response = await axios.get(apiUrl, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Accept': 'application/json',
-        'Referer': `https://www.instagram.com/p/${shortcode}/`,
-        'Origin': 'https://www.instagram.com',
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        Accept: 'application/json',
+        Referer: `https://www.instagram.com/p/${shortcode}/`,
+        Origin: 'https://www.instagram.com',
         'x-ig-app-id': '936619743392459',
         'sec-fetch-site': 'same-origin',
         'sec-fetch-mode': 'cors',
-        'x-requested-with': 'XMLHttpRequest'
+        'x-requested-with': 'XMLHttpRequest',
       },
-      timeout: 15000
+      timeout: 15000,
     });
 
     // Check if we got a valid response
     if (response.data?.data?.xdt_shortcode_media) {
       const mediaData = response.data.data.xdt_shortcode_media;
-      console.log(`Successfully retrieved media data`);
+      this.logger.log(`Successfully retrieved media data`);
 
       // First priority: direct video_url if available
       if (mediaData.video_url) {
@@ -166,7 +181,7 @@ export class InstaScrapperService {
       // Fifth priority: extract from display resources
       if (mediaData.display_resources && mediaData.display_resources.length > 0) {
         const highestResResource = mediaData.display_resources.reduce(
-          (prev: any, current: any) => (current.config_width > prev.config_width) ? current : prev,
+          (prev: any, current: any) => (current.config_width > prev.config_width ? current : prev),
           mediaData.display_resources[0]
         );
 
@@ -175,16 +190,18 @@ export class InstaScrapperService {
           const imgUrl = highestResResource.src;
           // Try to convert image URL pattern to video URL pattern
           const possibleVideoUrl = imgUrl
-            .replace('/t51.', '/v51.')  // Change type indicator
-            .replace('/e35/', '/e15/')  // Change encoding
+            .replace('/t51.', '/v51.') // Change type indicator
+            .replace('/e35/', '/e15/') // Change encoding
             .replace(/\.[^.]+$/, '.mp4'); // Change extension
 
           try {
             // Verify if this URL actually returns a video
             const headResponse = await axios.head(possibleVideoUrl, { timeout: 5000 });
-            if (headResponse.status === 200 &&
+            if (
+              headResponse.status === 200 &&
               (headResponse.headers['content-type']?.includes('video') ||
-                possibleVideoUrl.endsWith('.mp4'))) {
+                possibleVideoUrl.endsWith('.mp4'))
+            ) {
               return possibleVideoUrl;
             }
           } catch (e) {
@@ -197,14 +214,13 @@ export class InstaScrapperService {
     return null;
   }
 
-
   /**
    * Retrieves the video URL from an Instagram post using Puppeteer.
    * This method launches a headless browser, navigates to the given post URL,
    * and attempts to capture the video URL through network requests or by evaluating
    * the page content. It handles various scenarios to ensure the video URL is extracted,
    * including direct video elements, sources within video elements, iframes, and JSON data.
-   * 
+   *
    * @param postUrl - The URL of the Instagram post to scrape for video content.
    * @returns A promise that resolves to the video URL or null if not found.
    * @throws An error if no video URL is found after all attempts.
@@ -224,20 +240,23 @@ export class InstaScrapperService {
 
     let videoUrl: string | null = null;
 
-    page.on('request', request => {
+    page.on('request', (request) => {
       request.continue();
     });
 
-    page.on('response', async response => {
+    page.on('response', async (response) => {
       const url = response.url();
 
       if (url.startsWith('blob:')) {
         return;
       }
       // Check for common video formats in responses
-      if (url.includes('.mp4') || url.includes('video') ||
+      if (
+        url.includes('.mp4') ||
+        url.includes('video') ||
         url.includes('instagram.com/p/') ||
-        url.includes('cdninstagram')) {
+        url.includes('cdninstagram')
+      ) {
         const contentType = response.headers()['content-type'] || '';
         if (contentType.includes('video') || url.endsWith('.mp4')) {
           // Clean the URL by removing byte range parameters that make it unplayable
@@ -260,7 +279,9 @@ export class InstaScrapperService {
     // If we haven't captured the video URL through network requests, try these alternative methods
     if (!videoUrl) {
       // Wait for video elements to be available
-      await page.waitForSelector('video', { timeout: 5000 }).catch(() => console.log('No video element found directly'));
+      await page
+        .waitForSelector('video', { timeout: 5000 })
+        .catch(() => console.log('No video element found directly'));
 
       // Try multiple approaches to extract video URL
       videoUrl = await page.evaluate(() => {
@@ -283,7 +304,7 @@ export class InstaScrapperService {
             }
           } catch (e) {
             // Cross-origin restrictions may prevent access
-            console.error('Error looking for videos inside iframes:', e);
+            this.logger.error('Error looking for videos inside iframes:', { err: e });
           }
         }
 
@@ -295,7 +316,9 @@ export class InstaScrapperService {
             if (data.video?.contentUrl) return data.video.contentUrl;
           } catch (e) {
             // Invalid JSON
-            console.error('Error checking for video URLs in JSON data embedded in the page:', e);
+            this.logger.error('Error checking for video URLs in JSON data embedded in the page:', {
+              err: e,
+            });
           }
         }
 
@@ -317,16 +340,16 @@ export class InstaScrapperService {
   }
 
   /**
- * Retrieves the description of an Instagram post by scraping the page.
- * This method launches a headless browser, navigates to the given URL,
- * and extracts the content of the <meta property="og:title" ... /> tag.
- * 
- * @param url - The URL of the Instagram post to scrape for the description.
- * @returns A promise that resolves to the post description or null if not found.
- * @throws An error if no description is found.
- */
+   * Retrieves the description of an Instagram post by scraping the page.
+   * This method launches a headless browser, navigates to the given URL,
+   * and extracts the content of the <meta property="og:title" ... /> tag.
+   *
+   * @param url - The URL of the Instagram post to scrape for the description.
+   * @returns A promise that resolves to the post description or null if not found.
+   * @throws An error if no description is found.
+   */
   private async getPostDescriptionByUrl(url: string): Promise<string | null> {
-    console.log(`Start scrapping: ${url}`);
+    this.logger.log(`Start scrapping: ${url}`);
 
     const browser = await puppeteer.launch(this.config);
     const page = await browser.newPage();
@@ -341,7 +364,7 @@ export class InstaScrapperService {
       return metaTag ? metaTag.getAttribute('content') : null;
     });
 
-    console.log('Instagram Post/Reel Description:', description);
+    this.logger.log(`Instagram Post/Reel Description: ${description}`);
 
     await browser.close();
 
