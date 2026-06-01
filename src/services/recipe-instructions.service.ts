@@ -42,8 +42,9 @@ export class RecipeInstructionsService {
     });
   }
 
-  async generateInstructionsFromVideo(file: RecipeVideoMetadata): Promise<InstructionsWithTimeResponse> {
-
+  async generateInstructionsFromVideo(
+    file: RecipeVideoMetadata
+  ): Promise<InstructionsWithTimeResponse> {
     try {
       const fileUri = this.storageService.getFileGsutilUrl(`${tmpVideoDirectory}/${file.fileName}`);
       console.log(`Generating instructions from video: ${fileUri}`);
@@ -93,7 +94,10 @@ Requirements:
   /**
    * Get video timestamps by given recipe instructions
    */
-  async getTimestamps(instructions: string[], file: RecipeVideoMetadata): Promise<RecipeTimestamp[]> {
+  async getTimestamps(
+    instructions: string[],
+    file: RecipeVideoMetadata
+  ): Promise<RecipeTimestamp[]> {
     try {
       const fileUri = this.storageService.getFileGsutilUrl(`${tmpVideoDirectory}/${file.fileName}`);
       console.log(`Getting timestamps from video: ${fileUri}`);
@@ -105,7 +109,7 @@ Requirements:
           temperature: 0,
           maxOutputTokens: 4096,
           responseSchema: recipeTimestampsSchema,
-          responseMimeType: 'application/json'
+          responseMimeType: 'application/json',
         },
       });
       const instructionsStr = instructions
@@ -114,7 +118,8 @@ Requirements:
       const result = await structuredModel.generateContent({
         contents: [
           {
-            role: 'user', parts: [
+            role: 'user',
+            parts: [
               {
                 fileData: {
                   mimeType: 'video/mp4',
@@ -124,7 +129,8 @@ Requirements:
             ],
           },
           {
-            role: 'user', parts: [
+            role: 'user',
+            parts: [
               {
                 text: `
               You are provided with a video of a cooking recipe and step-by-step instructions related to that video.
@@ -153,7 +159,6 @@ Requirements:
 
         return [];
       }
-
 
       return uniqBy<RecipeTimestamp>(response.timestamps, 'step');
     } catch (e: any) {

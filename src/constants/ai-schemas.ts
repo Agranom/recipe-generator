@@ -11,13 +11,15 @@ export const recipeSchema = z.object({
       name: z.string().describe('Name of the recipe ingredient'),
       amount: z.string().describe('Amount of the ingredient'),
       measurementUnit: z.string().optional().describe(`Measurement unit of the ingredient`),
-    }),
+    })
   ),
 });
 
 export const recipeValidationSchema = z.object({
   isRecipe: z.boolean().describe('Is the text a cooking recipe?'),
-  hasIngredients: z.boolean().describe('Does the recipe contains cooking ingredients (at least one)'),
+  hasIngredients: z
+    .boolean()
+    .describe('Does the recipe contains cooking ingredients (at least one)'),
   hasInstructions: z.boolean().describe('Does the recipe contains instructions how to cook it'),
 });
 
@@ -80,7 +82,8 @@ export const recipeTimestampsSchema: ResponseSchema = {
           },
           endTime: {
             type: SchemaType.STRING,
-            description: 'End time of the cooking step in a format mm:ss. Set to null if the step in not shown on the video.',
+            description:
+              'End time of the cooking step in a format mm:ss. Set to null if the step in not shown on the video.',
           },
         },
         required: ['step'],

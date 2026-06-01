@@ -32,11 +32,9 @@ export class GoogleStorageService {
     return `gs://${this.bucketName}/${destFileName}`;
   }
 
-
-
   async uploadFile(filePath: string, options: UploadFileOptions = {}): Promise<UploadFileResult> {
     console.log(`Uploading file to Google Storage: ${filePath}`);
-    
+
     if (!fs.existsSync(filePath)) {
       throw new Error(`File does not exist under the path: ${filePath}`);
     }
@@ -44,7 +42,7 @@ export class GoogleStorageService {
     const fileName = path.basename(filePath);
     const prefix = options.targetPrefix || '';
     const destFileName = `${prefix}${fileName}`;
-    
+
     try {
       const [file] = await this.storage.bucket(this.bucketName).upload(filePath, {
         destination: destFileName,
@@ -71,13 +69,16 @@ export class GoogleStorageService {
   async moveFile(sourceFile: string, destinationFile: string): Promise<UploadFileResult> {
     try {
       // Move the file
-      const [file] = await this.storage.bucket(this.bucketName).file(sourceFile).move(destinationFile) as [File];
-      
+      const [file] = (await this.storage
+        .bucket(this.bucketName)
+        .file(sourceFile)
+        .move(destinationFile)) as [File];
+
       // Ensure the file is public after moving
       await file.makePublic();
-      
+
       const publicUrl = file.publicUrl();
-      
+
       return {
         fileId: destinationFile, // Return the destination path as the fileId for future reference
         publicUrl,
@@ -96,4 +97,4 @@ export class GoogleStorageService {
       throw err;
     }
   }
-} 
+}

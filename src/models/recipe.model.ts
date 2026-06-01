@@ -25,7 +25,7 @@ export interface GeneratedRecipe {
   portionsCount?: number;
 }
 
-export interface Recipe extends Omit<GeneratedRecipe, 'instructions'>{
+export interface Recipe extends Omit<GeneratedRecipe, 'instructions'> {
   instructions: RecipeInstruction[];
   videoUrl?: string;
 }

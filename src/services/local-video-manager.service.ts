@@ -5,10 +5,12 @@ import { InstaScrapperService } from './insta-scrapper.service';
 
 @Service()
 export class LocalVideoManagerService {
-  constructor(@Inject() private instaScrapper: InstaScrapperService) {
-  }
+  constructor(@Inject() private instaScrapper: InstaScrapperService) {}
 
-  async downloadVideo(videoUrl: string | undefined, outputPath: string): Promise<{ success: boolean; videoUrl?: string }> {
+  async downloadVideo(
+    videoUrl: string | undefined,
+    outputPath: string
+  ): Promise<{ success: boolean; videoUrl?: string }> {
     if (!videoUrl) {
       console.error(`@ downloadVideo fail: videoUrl is null`);
 
@@ -26,7 +28,6 @@ export class LocalVideoManagerService {
 
       return { success: false };
     }
-
   }
 
   deleteVideo(path: string): void {

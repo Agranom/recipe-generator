@@ -57,9 +57,7 @@ export class InstaScrapperService {
    * @returns A promise that resolves to an object containing the post description, video URL, and image URL.
    *          If any of these cannot be retrieved, they will be returned as null or undefined.
    */
-  async getPostMetadata(
-    postUrl: string
-  ): Promise<{
+  async getPostMetadata(postUrl: string): Promise<{
     videoUrl: string | null;
     description: string | null;
     imageUrl: string | undefined;
