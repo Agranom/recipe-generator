@@ -1,15 +1,16 @@
 import dotenv from 'dotenv';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { ExpressInstrumentation } from '@opentelemetry/instrumentation-express';
-import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { AggregationTemporality, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { HttpInstrumentation } from '@opentelemetry/instrumentation-http';
-import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_DEPLOYMENT_ENVIRONMENT_NAME } from '@opentelemetry/semantic-conventions';
+import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION, ATTR_DEPLOYMENT_ENVIRONMENT_NAME, ATTR_SERVICE_INSTANCE_ID } from '@opentelemetry/semantic-conventions';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import { PinoInstrumentation } from '@opentelemetry/instrumentation-pino';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-proto';
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-proto';
 import { SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
+import { randomUUID } from 'crypto';
 
 dotenv.config({ path: '.env' });
 
@@ -23,6 +24,7 @@ const otelSDK = new NodeSDK({
     [ATTR_SERVICE_NAME]: 'recipe-generator',
     [ATTR_SERVICE_VERSION]: process.env.K_REVISION,
     [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: process.env.NODE_ENV,
+    [ATTR_SERVICE_INSTANCE_ID]: randomUUID(),
   }),
   traceExporter: new OTLPTraceExporter({
     headers: commonHeaders,
@@ -30,7 +32,9 @@ const otelSDK = new NodeSDK({
   metricReader: new PeriodicExportingMetricReader({
     exporter: new OTLPMetricExporter({
       headers: commonHeaders,
+      temporalityPreference: AggregationTemporality.CUMULATIVE,
     }),
+    exportIntervalMillis: 5000,
   }),
   logRecordProcessor: new SimpleLogRecordProcessor(
     new OTLPLogExporter({

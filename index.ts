@@ -21,6 +21,12 @@ const port = process.env.PORT || 4000;
   Container.set(LOGGER_TOKEN, new PinoLoggerAdapter(
     {
       level: process.env.LOG_LEVEL || 'info',
+      transport: process.env.NODE_ENV !== 'production' ? {
+        target: 'pino-pretty',
+        options: {
+          colorize: true,
+        },
+      } : undefined,
       formatters: {
         level(label) {
           return { severity: label.toUpperCase() };

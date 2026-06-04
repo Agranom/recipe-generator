@@ -153,6 +153,8 @@ export class RecipeGeneratorService {
         recipeTimestamps
       );
 
+      this.logger.log(`Instructions with timestamps: `, { instructions });
+
       if (videoFile) {
         const { url: videoUrl } = await this.videoProcessingService.publishVideo(videoFile);
         this.logger.log('Recipe video has been published to GCS');

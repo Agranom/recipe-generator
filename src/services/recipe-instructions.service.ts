@@ -6,6 +6,8 @@ import { uniqBy } from 'lodash';
 import { VertexAI, GenerativeModel, GenerateContentResponse } from '@google-cloud/vertexai';
 import { GoogleStorageService } from '../shared/services/google-storage.service';
 import { tmpVideoDirectory } from '../shared/constants/video-directories';
+import { LOGGER_TOKEN } from '../shared/services/logger.service';
+import { Logger } from '../shared/interfaces/logger.interface';
 
 interface InstructionsWithTimeResponse {
   instructions: string;
@@ -17,7 +19,10 @@ export class RecipeInstructionsService {
   private readonly model: GenerativeModel;
   private readonly vertexAI: VertexAI;
 
-  constructor(@Inject() private storageService: GoogleStorageService) {
+  constructor(
+    @Inject() private storageService: GoogleStorageService,
+    @Inject(LOGGER_TOKEN) private logger: Logger
+  ) {
     const apiKey = process.env.GOOGLE_API_KEY;
 
     if (!apiKey) {
@@ -47,7 +52,7 @@ export class RecipeInstructionsService {
   ): Promise<InstructionsWithTimeResponse> {
     try {
       const fileUri = this.storageService.getFileGsutilUrl(`${tmpVideoDirectory}/${file.fileName}`);
-      console.log(`Generating instructions from video: ${fileUri}`);
+      this.logger.log(`Generating instructions from video: ${fileUri}`);
 
       const result = await this.model.generateContent({
         contents: [
@@ -86,7 +91,7 @@ Requirements:
 
       return response;
     } catch (error: unknown) {
-      console.error(`Couldn't generate instructions from the video`, error);
+      this.logger.error(`Couldn't generate instructions from the video`, { err: error });
       throw error;
     }
   }
@@ -100,7 +105,7 @@ Requirements:
   ): Promise<RecipeTimestamp[]> {
     try {
       const fileUri = this.storageService.getFileGsutilUrl(`${tmpVideoDirectory}/${file.fileName}`);
-      console.log(`Getting timestamps from video: ${fileUri}`);
+      this.logger.log(`Getting timestamps from video: ${fileUri}`);
 
       const structuredModel = this.vertexAI.getGenerativeModel({
         model: 'gemini-2.5-flash',
@@ -155,14 +160,14 @@ Requirements:
       const response = JSON.parse(text);
 
       if (!response.timestamps) {
-        console.warn(`Timestamps are empty`);
+        this.logger.warn(`Timestamps are empty`);
 
         return [];
       }
 
       return uniqBy<RecipeTimestamp>(response.timestamps, 'step');
     } catch (e: any) {
-      console.error(`Couldn't get timestamps`);
+      this.logger.error(`Couldn't get timestamps`, { err: e });
 
       return [];
     }
