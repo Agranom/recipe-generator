@@ -12,7 +12,6 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-proto';
 import { SimpleLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
 import { HostMetrics } from '@opentelemetry/host-metrics';
-import { randomUUID } from 'crypto';
 
 dotenv.config({ path: '.env' });
 
@@ -26,7 +25,7 @@ const otelSDK = new NodeSDK({
     [ATTR_SERVICE_NAME]: 'recipe-generator',
     [ATTR_SERVICE_VERSION]: process.env.K_REVISION,
     [ATTR_DEPLOYMENT_ENVIRONMENT_NAME]: process.env.NODE_ENV,
-    [ATTR_SERVICE_INSTANCE_ID]: randomUUID(),
+    [ATTR_SERVICE_INSTANCE_ID]: process.env.HOSTNAME ?? 'local',
   }),
   traceExporter: new OTLPTraceExporter({
     headers: commonHeaders,

@@ -65,13 +65,15 @@ export class RecipeGeneratorService {
           async (scrapeSpan) => {
             try {
               const result = await this.instaScrapper.getPostMetadata(baseUrl);
-              scrapeSpan.setAttribute('has.video', !!videoUrl);
-              scrapeSpan.setAttribute('description.length', description?.length ?? 0);
+              scrapeSpan.setAttribute('has.video', !!result.videoUrl);
+              scrapeSpan.setAttribute('description.length', result.description?.length ?? 0);
               return result;
             } catch (err) {
               scrapeSpan.recordException(err as Error);
               scrapeSpan.setStatus({ code: SpanStatusCode.ERROR });
               throw err;
+            } finally {
+              scrapeSpan.end();
             }
           }
         );
@@ -98,6 +100,8 @@ export class RecipeGeneratorService {
               validateSpan.recordException(err as Error);
               validateSpan.setStatus({ code: SpanStatusCode.ERROR });
               throw err;
+            } finally {
+              validateSpan.end();
             }
           }
         );
@@ -137,6 +141,8 @@ export class RecipeGeneratorService {
                 preloadSpan.recordException(err as Error);
                 preloadSpan.setStatus({ code: SpanStatusCode.ERROR });
                 throw err;
+              } finally {
+                preloadSpan.end();
               }
             }
           );
@@ -155,6 +161,8 @@ export class RecipeGeneratorService {
         span.recordException(err as Error);
         span.setStatus({ code: SpanStatusCode.ERROR });
         throw err;
+      } finally {
+        span.end();
       }
     });
   }
@@ -195,6 +203,8 @@ export class RecipeGeneratorService {
                 instructSpan.recordException(err as Error);
                 instructSpan.setStatus({ code: SpanStatusCode.ERROR });
                 throw err;
+              } finally {
+                instructSpan.end();
               }
             }
           );
@@ -229,6 +239,8 @@ export class RecipeGeneratorService {
               parseSpan.recordException(err as Error);
               parseSpan.setStatus({ code: SpanStatusCode.ERROR });
               throw err;
+            } finally {
+              parseSpan.end();
             }
           }
         );
@@ -250,6 +262,8 @@ export class RecipeGeneratorService {
                 timestampSpan.recordException(err as Error);
                 timestampSpan.setStatus({ code: SpanStatusCode.ERROR });
                 throw err;
+              } finally {
+                timestampSpan.end();
               }
             }
           );
@@ -275,6 +289,8 @@ export class RecipeGeneratorService {
                 publishSpan.recordException(err as Error);
                 publishSpan.setStatus({ code: SpanStatusCode.ERROR });
                 throw err;
+              } finally {
+                publishSpan.end();
               }
             }
           );
@@ -289,6 +305,8 @@ export class RecipeGeneratorService {
         this.logger.error(`Couldn't generate the recipe: `, { err: e });
 
         throw e;
+      } finally {
+        span.end();
       }
     });
   }
@@ -308,6 +326,8 @@ export class RecipeGeneratorService {
         span.setStatus({ code: SpanStatusCode.ERROR });
         this.logger.error(`Failed to delete file from GCS: ${file.publicFileId}:`, { err: error });
         throw error;
+      } finally {
+        span.end();
       }
     });
   }
