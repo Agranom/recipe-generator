@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ResponseSchema, SchemaType } from '@google-cloud/vertexai';
+import { Schema, Type } from '@google/genai';
 
 export const recipeSchema = z.object({
   title: z.string({ required_error: 'title is required' }).describe('The name of the recipe'),
@@ -23,11 +23,11 @@ export const recipeValidationSchema = z.object({
   hasInstructions: z.boolean().describe('Does the recipe contains instructions how to cook it'),
 });
 
-export const instructionsWithTimeSchema: ResponseSchema = {
-  type: SchemaType.OBJECT,
+export const instructionsWithTimeSchema: Schema = {
+  type: Type.OBJECT,
   properties: {
     instructions: {
-      type: SchemaType.STRING,
+      type: Type.STRING,
       description:
         'Single string with concise cooking instructions. Each step must be on its own line, start with the step number followed by a period, and describe exactly one visible cooking action.',
       example: `
@@ -37,22 +37,22 @@ export const instructionsWithTimeSchema: ResponseSchema = {
       `,
     },
     timestamps: {
-      type: SchemaType.ARRAY,
+      type: Type.ARRAY,
       description:
         'One timestamp object per instruction step. Step numbers must match the numbered lines in "instructions", be sorted in ascending order, and contain no duplicates.',
       items: {
-        type: SchemaType.OBJECT,
+        type: Type.OBJECT,
         properties: {
           step: {
-            type: SchemaType.INTEGER,
+            type: Type.INTEGER,
             description: 'Instruction step number from the "instructions" field.',
           },
           startTime: {
-            type: SchemaType.STRING,
+            type: Type.STRING,
             description: 'Start time of the cooking step in the video using mm:ss format.',
           },
           endTime: {
-            type: SchemaType.STRING,
+            type: Type.STRING,
             description: 'End time of the cooking step in the video using mm:ss format.',
           },
         },
@@ -63,25 +63,25 @@ export const instructionsWithTimeSchema: ResponseSchema = {
   required: ['instructions', 'timestamps'],
 };
 
-export const recipeTimestampsSchema: ResponseSchema = {
-  type: SchemaType.OBJECT,
+export const recipeTimestampsSchema: Schema = {
+  type: Type.OBJECT,
   properties: {
     timestamps: {
-      type: SchemaType.ARRAY,
+      type: Type.ARRAY,
       description: 'Recipe video timestamps which correspond to cooking instructions.',
       items: {
-        type: SchemaType.OBJECT,
+        type: Type.OBJECT,
         properties: {
           step: {
-            type: SchemaType.NUMBER,
+            type: Type.NUMBER,
             description: 'Step number',
           },
           startTime: {
-            type: SchemaType.STRING,
+            type: Type.STRING,
             description: `Start time of the cooking step in a format mm:ss. Set to null if the step in not shown on the video.`,
           },
           endTime: {
-            type: SchemaType.STRING,
+            type: Type.STRING,
             description:
               'End time of the cooking step in a format mm:ss. Set to null if the step in not shown on the video.',
           },

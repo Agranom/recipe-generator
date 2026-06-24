@@ -3,7 +3,7 @@ import { instructionsWithTimeSchema, recipeTimestampsSchema } from '../constants
 import { RecipeTimestamp } from '../models/recipe.model';
 import { RecipeVideoMetadata } from '../models/recipe-metadata.model';
 import { uniqBy } from 'lodash';
-import { VertexAI, GenerativeModel, GenerateContentResponse } from '@google-cloud/vertexai';
+import { GoogleGenAI } from '@google/genai';
 import { GoogleStorageService } from '../shared/services/google-storage.service';
 import { tmpVideoDirectory } from '../shared/constants/video-directories';
 import { LOGGER_TOKEN } from '../shared/services/logger.service';
@@ -16,35 +16,13 @@ interface InstructionsWithTimeResponse {
 
 @Service()
 export class RecipeInstructionsService {
-  private readonly model: GenerativeModel;
-  private readonly vertexAI: VertexAI;
+  private readonly ai: GoogleGenAI;
 
   constructor(
     @Inject() private storageService: GoogleStorageService,
     @Inject(LOGGER_TOKEN) private logger: Logger
   ) {
-    const apiKey = process.env.GOOGLE_API_KEY;
-
-    if (!apiKey) {
-      throw new Error(`GOOGLE_API_KEY is not provided`);
-    }
-
-    this.vertexAI = new VertexAI({
-      project: 'boykom',
-      location: 'us-central1',
-    });
-
-    this.model = this.vertexAI.getGenerativeModel({
-      model: 'gemini-2.5-flash',
-      systemInstruction:
-        'You analyze cooking videos and return strict JSON that follows the provided response schema. Use only observable video evidence.',
-      generationConfig: {
-        temperature: 0,
-        maxOutputTokens: 4096,
-        responseSchema: instructionsWithTimeSchema,
-        responseMimeType: 'application/json',
-      },
-    });
+    this.ai = new GoogleGenAI({ vertexai: true, project: 'boykom', location: 'us-central1' });
   }
 
   async generateInstructionsFromVideo(
@@ -54,7 +32,8 @@ export class RecipeInstructionsService {
       const fileUri = this.storageService.getFileGsutilUrl(`${tmpVideoDirectory}/${file.fileName}`);
       this.logger.log(`Generating instructions from video: ${fileUri}`);
 
-      const result = await this.model.generateContent({
+      const response = await this.ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: [
           {
             role: 'user',
@@ -82,14 +61,22 @@ Requirements:
             ],
           },
         ],
+        config: {
+          systemInstruction:
+            'You analyze cooking videos and return strict JSON that follows the provided response schema. Use only observable video evidence.',
+          temperature: 0,
+          maxOutputTokens: 4096,
+          responseSchema: instructionsWithTimeSchema,
+          responseMimeType: 'application/json',
+        },
       });
-      const text = this.getResponseText(result.response);
+
+      const text = response.text ?? null;
       if (!text) {
         throw new Error(`No text found in the response`);
       }
-      const response = JSON.parse(text) as InstructionsWithTimeResponse;
 
-      return response;
+      return JSON.parse(text) as InstructionsWithTimeResponse;
     } catch (error: unknown) {
       this.logger.error(`Couldn't generate instructions from the video`, { err: error });
       throw error;
@@ -107,20 +94,12 @@ Requirements:
       const fileUri = this.storageService.getFileGsutilUrl(`${tmpVideoDirectory}/${file.fileName}`);
       this.logger.log(`Getting timestamps from video: ${fileUri}`);
 
-      const structuredModel = this.vertexAI.getGenerativeModel({
-        model: 'gemini-2.5-flash',
-        systemInstruction: 'You are a cooking video analyzer.',
-        generationConfig: {
-          temperature: 0,
-          maxOutputTokens: 4096,
-          responseSchema: recipeTimestampsSchema,
-          responseMimeType: 'application/json',
-        },
-      });
       const instructionsStr = instructions
         .map((value, i) => `${String(i + 1)}. ${value}`)
         .join('\n');
-      const result = await structuredModel.generateContent({
+
+      const result = await this.ai.models.generateContent({
+        model: 'gemini-2.5-flash',
         contents: [
           {
             role: 'user',
@@ -141,9 +120,9 @@ Requirements:
               You are provided with a video of a cooking recipe and step-by-step instructions related to that video.
               Your goal is to review each instruction and find the corresponding timestamps in the video.
               If a step is not shown in the video, simply set the startTime and endTime to null.
-              
+
               Instructions: ${instructionsStr};
-              
+
               Output the result based on the schema.
               Avoid duplicated steps.
             `,
@@ -151,9 +130,16 @@ Requirements:
             ],
           },
         ],
+        config: {
+          systemInstruction: 'You are a cooking video analyzer.',
+          temperature: 0,
+          maxOutputTokens: 4096,
+          responseSchema: recipeTimestampsSchema,
+          responseMimeType: 'application/json',
+        },
       });
 
-      const text = this.getResponseText(result.response);
+      const text = result.text ?? null;
       if (!text) {
         throw new Error(`No text found in the response`);
       }
@@ -166,14 +152,10 @@ Requirements:
       }
 
       return uniqBy<RecipeTimestamp>(response.timestamps, 'step');
-    } catch (e: any) {
+    } catch (e: unknown) {
       this.logger.error(`Couldn't get timestamps`, { err: e });
 
       return [];
     }
-  }
-
-  private getResponseText(result: GenerateContentResponse): string | null {
-    return result.candidates?.[0]?.content.parts?.[0]?.text ?? null;
   }
 }
