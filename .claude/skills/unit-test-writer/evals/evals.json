@@ -1,0 +1,50 @@
+{
+  "skill_name": "unit-test-writer",
+  "evals": [
+    {
+      "id": 0,
+      "name": "pure-helper",
+      "prompt": "Add unit tests for the mapInstructions helper in src/helpers/recipe.helper.ts. I want both branches covered — when there are timestamps and when there aren't. Put the spec next to the other tests.",
+      "expected_output": "A *.spec.ts that imports RecipeHelper directly (no mocking, no reflect-metadata needed), covers the timestamps-present and timestamps-absent branches with descriptive names, and runs green.",
+      "files": [],
+      "assertions": [
+        "Spec runs green: Jest reports all tests passing with 0 failures",
+        "Covers the timestamps-present branch (maps step/text/videoStartTime/videoEndTime)",
+        "Covers the timestamps-absent branch (sequential step numbering, no video times)",
+        "Imports RecipeHelper directly with no jest.mock and no Container/reflect-metadata machinery",
+        "Test names describe scenario and expected outcome, not vague ('works'/'should be defined')"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "injected-deps-service",
+      "prompt": "Write unit tests for VideoProcessingService (src/services/video-processing.service.ts). Cover preloadVideo and publishVideo, including the case where the download fails. Don't let it hit real Google Cloud Storage.",
+      "expected_output": "A *.spec.ts that constructs VideoProcessingService directly with fake LocalVideoManagerService and GoogleStorageService (no Container.get, no real GCS), covers happy + download-failure branches incl. finally cleanup, runs green and isolated.",
+      "files": [],
+      "assertions": [
+        "Spec runs green: Jest reports all tests passing with 0 failures",
+        "Constructs VideoProcessingService directly with fake collaborators (no Container.get)",
+        "Does not touch real Google Cloud Storage or the network (GoogleStorageService + LocalVideoManagerService are faked)",
+        "Covers the download-failure branch of preloadVideo (and ideally the finally-block cleanup)",
+        "Imports 'reflect-metadata' before importing the decorated service",
+        "Test names describe scenario and expected outcome, not vague ('works'/'should be defined')"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "orchestrator-llm-service",
+      "prompt": "I need unit tests for getRecipeMetadata on the RecipeGeneratorService orchestrator (src/services/recipe-generator.service.ts). It calls the scraper and an OpenAI chain. Make sure the tests are fast and don't call OpenAI or the network for real. Cover the not-a-recipe rejection and the happy no-video path at least.",
+      "expected_output": "A *.spec.ts that jest.mock's @langchain/openai, injects fakes for the other collaborators + logger, relies on the OTel no-op tracer (no OTel mocking), covers the not-a-recipe and happy no-video branches, and runs green without network.",
+      "files": [],
+      "assertions": [
+        "Spec runs green: Jest reports all tests passing with 0 failures",
+        "jest.mock's @langchain/openai (or otherwise prevents any real OpenAI/network call)",
+        "Covers the not-a-recipe rejection path (LLM validation returns isRecipe:false -> throws/rejects)",
+        "Covers the happy no-video path (valid recipe, no videoUrl -> returns preview metadata)",
+        "Constructs the service directly with faked collaborators; does not resolve the real graph via Container.get",
+        "Imports 'reflect-metadata' before importing the decorated service",
+        "Test names describe scenario and expected outcome, not vague ('works'/'should be defined')"
+      ]
+    }
+  ]
+}
