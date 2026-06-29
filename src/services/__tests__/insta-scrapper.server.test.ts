@@ -1,13 +1,23 @@
-import 'reflect-metadata';
 import { InstaScrapperService } from '../insta-scrapper.service';
-import { Container } from 'typedi';
+import { Logger } from '../../shared/interfaces/logger.interface';
 
 jest.setTimeout(30000);
 describe('InstaScrapperService', () => {
+  let logger: jest.Mocked<Logger>;
   let service: InstaScrapperService;
 
-  beforeAll(() => {
-    service = Container.get(InstaScrapperService);
+  beforeEach(() => {
+    jest.clearAllMocks();
+    logger = {
+      log: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      info: jest.fn(),
+      debug: jest.fn(),
+      trace: jest.fn(),
+      fatal: jest.fn(),
+    };
+    service = new InstaScrapperService(logger);
   });
 
   it('should create the instance', () => {

@@ -1,3 +1,4 @@
+import https from 'https';
 import { Inject, Service } from 'typedi';
 import puppeteer, { LaunchOptions } from 'puppeteer';
 import { retry } from '../shared/utils/retry.util';
@@ -141,6 +142,9 @@ export class InstaScrapperService {
         'sec-fetch-mode': 'cors',
         'x-requested-with': 'XMLHttpRequest',
       },
+      // keepAlive: false prevents Jest from reporting a dangling TLSWRAP open
+      // handle after the test suite finishes.
+      httpsAgent: new https.Agent({ keepAlive: false }),
       timeout: 15000,
     });
 
