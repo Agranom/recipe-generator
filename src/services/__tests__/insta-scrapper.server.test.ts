@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { InstaScrapperService } from '../insta-scrapper.service';
 import { Container } from 'typedi';
 
-
 jest.setTimeout(30000);
 describe('InstaScrapperService', () => {
   let service: InstaScrapperService;
@@ -16,7 +15,6 @@ describe('InstaScrapperService', () => {
   });
 
   describe('getPostMetadata', () => {
-
     it('should return text from "content" meta by instagram url', async () => {
       const url = 'https://www.instagram.com/reel/DBHExLYonRH/';
       const result = await service.getPostMetadata(url);

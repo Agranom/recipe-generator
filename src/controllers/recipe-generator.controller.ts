@@ -2,13 +2,15 @@ import { Inject, Service } from 'typedi';
 import { RecipeGeneratorService } from '../services/recipe-generator.service';
 import express from 'express';
 import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
-import { InstaScrapperService } from '../services/insta-scrapper.service';
+import { LOGGER_TOKEN } from '../shared/services/logger.service';
+import { Logger } from '../shared/interfaces/logger.interface';
 
 @Service()
 export class RecipeGeneratorController {
-  constructor(@Inject() private recipeGenerator: RecipeGeneratorService,
-              @Inject() private instaScrapper: InstaScrapperService) {
-  }
+  constructor(
+    @Inject() private recipeGenerator: RecipeGeneratorService,
+    @Inject(LOGGER_TOKEN) private logger: Logger
+  ) {}
 
   async getInstagramPostMetadata(req: express.Request, res: express.Response): Promise<unknown> {
     const { postUrl } = req.body;
@@ -22,7 +24,7 @@ export class RecipeGeneratorController {
 
       return res.status(200).json(result);
     } catch (e: any) {
-      console.error(`getInstagramPostMetadata fails`, e);
+      this.logger.error(`getInstagramPostMetadata fails`, { err: e });
 
       if (e instanceof InvalidRecipeError) {
         return res.status(400).send(e.message);
@@ -42,7 +44,7 @@ export class RecipeGeneratorController {
 
       return res.status(200).json(result);
     } catch (e) {
-      console.error(`generateFromInstagram fails`, e);
+      this.logger.error(`generateFromInstagram fails`, { err: e });
 
       res.status(500).send('Internal server error');
     }
@@ -50,13 +52,13 @@ export class RecipeGeneratorController {
 
   async deleteRecipeVideo(req: express.Request, res: express.Response): Promise<unknown> {
     try {
-      const { publicFileId, fileId } = req.body;
+      const { publicFileId } = req.body;
 
-      await this.recipeGenerator.deleteRecipeVideo({ publicFileId, fileId });
+      await this.recipeGenerator.deleteRecipeVideo({ publicFileId });
 
       return res.sendStatus(204);
     } catch (e) {
-      console.error(`deleteRecipeVideo fails`, e);
+      this.logger.error(`deleteRecipeVideo fails`, { err: e });
 
       res.status(500).send('Internal server error');
     }

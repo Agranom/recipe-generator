@@ -3,18 +3,29 @@ import { ChatOpenAI } from '@langchain/openai';
 import { InstaScrapperService } from './insta-scrapper.service';
 import { Runnable } from '@langchain/core/runnables';
 import { recipeSchema, recipeValidationSchema } from '../constants/ai-schemas';
-import { AIMessagePromptTemplate, ChatPromptTemplate, SystemMessagePromptTemplate } from '@langchain/core/prompts';
-import { GeneratedRecipe, Recipe, RecipeInstruction, RecipeTimestamp } from '../models/recipe.model';
+import {
+  AIMessagePromptTemplate,
+  ChatPromptTemplate,
+  SystemMessagePromptTemplate,
+} from '@langchain/core/prompts';
+import {
+  GeneratedRecipe,
+  Recipe,
+  RecipeInstruction,
+  RecipeTimestamp,
+} from '../models/recipe.model';
 import { InvalidRecipeError } from '../shared/errors/invalid-recipe.error';
 import { LocalVideoManagerService } from './local-video-manager.service';
 import { RecipeInstructionsService } from './recipe-instructions.service';
 import { RecipeHelper } from '../helpers/recipe.helper';
-import { GoogleAiFileManagerService } from '../shared/services/google-ai-file-manager.service';
 import { RecipeMetadata, RecipeVideoMetadata } from '../models/recipe-metadata.model';
 import { GoogleStorageService } from '../shared/services/google-storage.service';
 import crypto from 'crypto';
 import { VideoProcessingService } from './video-processing.service';
 import { retry } from '../shared/utils/retry.util';
+import { Logger } from '../shared/interfaces/logger.interface';
+import { LOGGER_TOKEN } from '../shared/services/logger.service';
+import { trace, SpanStatusCode } from '@opentelemetry/api';
 
 export interface RecipeGeneratorOptions {
   targetLanguage: string;
@@ -25,13 +36,16 @@ export interface RecipeGeneratorOptions {
 export class RecipeGeneratorService {
   private readonly baseLlm: ChatOpenAI;
   private readonly validationLlmChain: Runnable;
+  private readonly tracer = trace.getTracer('recipe-generator-service', '1.0.0');
 
-  constructor(@Inject() private instaScrapper: InstaScrapperService,
+  constructor(
+    @Inject() private instaScrapper: InstaScrapperService,
     @Inject() private localVideoManagerService: LocalVideoManagerService,
     @Inject() private storageService: GoogleStorageService,
     @Inject() private recipeInstructionsService: RecipeInstructionsService,
     @Inject() private videoProcessingService: VideoProcessingService,
-    @Inject() private fileManagerService: GoogleAiFileManagerService) {
+    @Inject(LOGGER_TOKEN) private logger: Logger
+  ) {
     this.baseLlm = new ChatOpenAI({
       model: 'gpt-4o-mini',
       temperature: 0,
@@ -41,135 +55,291 @@ export class RecipeGeneratorService {
   }
 
   async getRecipeMetadata(postUrl: string): Promise<RecipeMetadata> {
-     // Extract the URL part before the query parameters
-    const baseUrl = postUrl.split('?')[0];
-    const { description, videoUrl, imageUrl } = await this.instaScrapper.getPostMetadata(baseUrl);
+    return this.tracer.startActiveSpan('getRecipeMetadata', async (span) => {
+      try {
+        span.setAttribute('post.url', postUrl);
 
-    if (!description) {
-      throw new InvalidRecipeError(`Post description is empty`);
-    }
+        const baseUrl = postUrl.split('?')[0];
+        const { description, videoUrl, imageUrl } = await this.tracer.startActiveSpan(
+          'scrapeInstagramPost',
+          async (scrapeSpan) => {
+            try {
+              const result = await this.instaScrapper.getPostMetadata(baseUrl);
+              scrapeSpan.setAttribute('has.video', !!result.videoUrl);
+              scrapeSpan.setAttribute('description.length', result.description?.length ?? 0);
+              return result;
+            } catch (err) {
+              scrapeSpan.recordException(err as Error);
+              scrapeSpan.setStatus({ code: SpanStatusCode.ERROR });
+              throw err;
+            } finally {
+              scrapeSpan.end();
+            }
+          }
+        );
 
-    const { isRecipe, hasInstructions, hasIngredients } = await retry(() => this.validateRecipe(description), { maxAttempts: 3, delayMs: 1000 });
+        if (!description) {
+          const error = new InvalidRecipeError(`Post description is empty`);
+          span.recordException(error);
+          throw error;
+        }
 
-    if (!isRecipe || (!videoUrl && !hasInstructions)) {
-      throw new InvalidRecipeError(`Invalid recipe: ${JSON.stringify({
-        isRecipe,
-        isVideoUrl: !!videoUrl,
-        hasInstructions,
-        hasIngredients,
-      })}`);
-    }
+        const { isRecipe, hasInstructions, hasIngredients } = await this.tracer.startActiveSpan(
+          'validateRecipe',
+          async (validateSpan) => {
+            try {
+              const result = await retry(() => this.validateRecipe(description), {
+                maxAttempts: 3,
+                delayMs: 1000,
+              });
+              validateSpan.setAttribute('is.recipe', result.isRecipe);
+              validateSpan.setAttribute('has.instructions', result.hasInstructions);
+              validateSpan.setAttribute('has.ingredients', result.hasIngredients);
+              return result;
+            } catch (err) {
+              validateSpan.recordException(err as Error);
+              validateSpan.setStatus({ code: SpanStatusCode.ERROR });
+              throw err;
+            } finally {
+              validateSpan.end();
+            }
+          }
+        );
 
-    const defaultPreview: RecipeMetadata = { description, imageUrl, hasInstructions };
+        if (!isRecipe || (!videoUrl && !hasInstructions)) {
+          const error = new InvalidRecipeError(
+            `Invalid recipe: ${JSON.stringify({
+              isRecipe,
+              isVideoUrl: !!videoUrl,
+              hasInstructions,
+              hasIngredients,
+            })}`
+          );
+          span.recordException(error);
+          throw error;
+        }
 
-    if (!videoUrl) {
-      return defaultPreview;
-    }
-    // Generate a hash from the postUrl to use as the video name
-    const urlHash = crypto.createHash('md5').update(baseUrl).digest('hex');
-    const videoName = `${urlHash}.mp4`;
+        const defaultPreview: RecipeMetadata = { description, imageUrl, hasInstructions };
 
+        if (!videoUrl) {
+          return defaultPreview;
+        }
 
-    try {
-      const { publicFileId, fileName, mimeType, fileId, uri } = await this.videoProcessingService.preloadVideo(videoUrl, videoName);
+        const urlHash = crypto.createHash('md5').update(baseUrl).digest('hex');
+        const videoName = `${urlHash}.mp4`;
 
-      return { ...defaultPreview, videoFile: { uri, fileId, fileName, mimeType, url: videoUrl, publicFileId } };
-    } catch (e: any) {
-      return defaultPreview;
-    } finally {
-      this.localVideoManagerService.deleteVideo(videoName);
-    }
+        try {
+          const { publicFileId, fileName, fileId } = await this.tracer.startActiveSpan(
+            'preloadVideo',
+            async (preloadSpan) => {
+              try {
+                const result = await this.videoProcessingService.preloadVideo(videoUrl, videoName);
+                preloadSpan.setAttribute('video.name', videoName);
+                preloadSpan.setAttribute('file.id', result.fileId);
+                return result;
+              } catch (err) {
+                preloadSpan.recordException(err as Error);
+                preloadSpan.setStatus({ code: SpanStatusCode.ERROR });
+                throw err;
+              } finally {
+                preloadSpan.end();
+              }
+            }
+          );
 
+          return {
+            ...defaultPreview,
+            videoFile: { fileId, fileName, url: videoUrl, publicFileId },
+          };
+        } catch (e: any) {
+          span.addEvent('video_preload_failed', { 'error.message': e.message });
+          return defaultPreview;
+        } finally {
+          this.localVideoManagerService.deleteVideo(videoName);
+        }
+      } catch (err) {
+        span.recordException(err as Error);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
   }
 
-  async generateRecipe(metadata: RecipeMetadata, options: RecipeGeneratorOptions = {} as RecipeGeneratorOptions): Promise<Recipe> {
-    const { targetLanguage, useMetricSystem } = options;
-    const { description, hasInstructions, videoFile } = metadata;
+  async generateRecipe(
+    metadata: RecipeMetadata,
+    options: RecipeGeneratorOptions = {} as RecipeGeneratorOptions
+  ): Promise<Recipe> {
+    return this.tracer.startActiveSpan('generateRecipe', async (span) => {
+      try {
+        const { targetLanguage, useMetricSystem } = options;
+        const { description, hasInstructions, videoFile } = metadata;
 
-    let recipeTimestamps: RecipeTimestamp[] = [];
-    let recipeText = description;
+        span.setAttribute('has.instructions', hasInstructions);
+        span.setAttribute('has.video', !!videoFile);
+        span.setAttribute('target.language', targetLanguage || 'english');
+        span.setAttribute('use.metric.system', useMetricSystem);
 
-    try {
+        let recipeTimestamps: RecipeTimestamp[] = [];
+        let recipeText = description;
 
-      if (!hasInstructions && videoFile) {
-        console.log(`Generating instructions`);
-        const {
-          instructions,
-          timestamps,
-        } = await this.recipeInstructionsService.generateInstructionsFromVideo(videoFile);
+        if (!hasInstructions && videoFile) {
+          const { instructions, timestamps } = await this.tracer.startActiveSpan(
+            'generateInstructionsFromVideo',
+            async (instructSpan) => {
+              try {
+                this.logger.log(`Generating instructions`);
+                const result = await retry(
+                  () => this.recipeInstructionsService.generateInstructionsFromVideo(videoFile),
+                  { maxAttempts: 3, useExponentialBackoff: true }
+                );
 
-        console.log(`Instructions generated`);
+                this.logger.log(`Instructions generated: ${result.instructions}`);
+                this.logger.log(`Timestamps count: ${result.timestamps.length}`);
 
-        recipeText += `\n\nInstructions: ${instructions}`;
-        recipeTimestamps = timestamps;
+                return result;
+              } catch (err) {
+                instructSpan.recordException(err as Error);
+                instructSpan.setStatus({ code: SpanStatusCode.ERROR });
+                throw err;
+              } finally {
+                instructSpan.end();
+              }
+            }
+          );
+
+          recipeText += `\n\nInstructions: ${instructions}`;
+          recipeTimestamps = timestamps;
+        }
+
+        this.logger.log('Start generating the recipe');
+
+        const generatedRecipe: GeneratedRecipe = await this.tracer.startActiveSpan(
+          'parseRecipeWithLLM',
+          async (parseSpan) => {
+            try {
+              const recipeLlm = this.getRecipeGeneratorLlmChain({
+                targetLanguage,
+                useMetricSystem,
+              });
+
+              const result = await retry(
+                () => recipeLlm.invoke({ text: recipeText }, { timeout: 30000 }),
+                { maxAttempts: 2, delayMs: 1000 }
+              );
+
+              parseSpan.setAttribute('recipe.name', result.name || '');
+              parseSpan.setAttribute('ingredients.count', result.ingredients?.length ?? 0);
+              parseSpan.setAttribute('instructions.count', result.instructions?.length ?? 0);
+              this.logger.log(`Recipe has been generated`);
+
+              return result;
+            } catch (err) {
+              parseSpan.recordException(err as Error);
+              parseSpan.setStatus({ code: SpanStatusCode.ERROR });
+              throw err;
+            } finally {
+              parseSpan.end();
+            }
+          }
+        );
+
+        if (hasInstructions && videoFile) {
+          recipeTimestamps = await this.tracer.startActiveSpan(
+            'alignTimestampsToInstructions',
+            async (timestampSpan) => {
+              try {
+                this.logger.log(`Generating timestamps`);
+                const result = await retry(
+                  () =>
+                    this.recipeInstructionsService.getTimestamps(
+                      generatedRecipe.instructions,
+                      videoFile
+                    ),
+                  { maxAttempts: 2 }
+                );
+
+                timestampSpan.setAttribute('timestamps.count', result.length);
+                return result;
+              } catch (err) {
+                timestampSpan.recordException(err as Error);
+                timestampSpan.setStatus({ code: SpanStatusCode.ERROR });
+                throw err;
+              } finally {
+                timestampSpan.end();
+              }
+            }
+          );
+        }
+
+        const instructions: RecipeInstruction[] = RecipeHelper.mapInstructions(
+          generatedRecipe.instructions,
+          recipeTimestamps
+        );
+
+        this.logger.log(`Instructions with timestamps: `, { instructions });
+
+        if (videoFile) {
+          const { url: videoUrl } = await this.tracer.startActiveSpan(
+            'publishVideo',
+            async (publishSpan) => {
+              try {
+                const result = await this.videoProcessingService.publishVideo(videoFile);
+                publishSpan.setAttribute('video.url', result.url);
+                this.logger.log('Recipe video has been published to GCS');
+                return result;
+              } catch (err) {
+                publishSpan.recordException(err as Error);
+                publishSpan.setStatus({ code: SpanStatusCode.ERROR });
+                throw err;
+              } finally {
+                publishSpan.end();
+              }
+            }
+          );
+
+          return { ...generatedRecipe, instructions, videoUrl };
+        }
+
+        return { ...generatedRecipe, instructions };
+      } catch (e: any) {
+        span.recordException(e);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: e.message });
+        this.logger.error(`Couldn't generate the recipe: `, { err: e });
+
+        throw e;
+      } finally {
+        span.end();
       }
-
-      console.log('Start generating the recipe');
-
-      const recipeLlm = this.getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem });
-
-      const generatedRecipe: GeneratedRecipe = await retry(() => recipeLlm.invoke({ text: recipeText }, { timeout: 30000 }), { maxAttempts: 2, delayMs: 1000 });
-
-      console.log(`Recipe has been generated`);
-
-      // Generate timestamps if instructions provided in the video description
-      if (hasInstructions && videoFile) {
-        console.log(`Generating timestamps`);
-
-        const timestamps = await this.recipeInstructionsService.getTimestamps(generatedRecipe.instructions, videoFile);
-
-        recipeTimestamps = timestamps;
-      }
-
-      const instructions: RecipeInstruction[] = RecipeHelper.mapInstructions(generatedRecipe.instructions, recipeTimestamps);
-
-      if (videoFile) {
-        const { url: videoUrl } = await this.videoProcessingService.publishVideo(videoFile);
-        console.log('Recipe video has been published to GCS');
-        return { ...generatedRecipe, instructions, videoUrl };
-      }
-
-      return { ...generatedRecipe, instructions };
-    } catch (e: any) {
-      console.error(`Couldn't generate the recipe: `, e.message);
-
-      throw e;
-    } finally {
-      if (videoFile) {
-        // Delete the video file from the file manager (Google AI)
-        this.deleteRecipeVideo({ fileId: videoFile.fileId });
-      }
-    }
+    });
   }
 
-  async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'publicFileId' | 'fileId'>): Promise<void> {
-    // Delete the file from the file manager (Google AI)
-    if (file.fileId) {
+  async deleteRecipeVideo(file: Pick<RecipeVideoMetadata, 'publicFileId'>): Promise<void> {
+    return this.tracer.startActiveSpan('deleteRecipeVideo', async (span) => {
       try {
-        await this.fileManagerService.deleteFileById(file.fileId);
-        console.log('Recipe video has been deleted from GenAI');
-      } catch (error: any) {
-        console.error(`Failed to delete file from file manager: ${file.fileId}:`, error);
-        throw error;
-      }
-    }
+        span.setAttribute('file.id', file.publicFileId || '');
 
-    // Delete the file from the storage service (Google Cloud Storage)
-    if (file.publicFileId) {
-      try {
-        await this.storageService.deleteFile(file.publicFileId);
-        console.log('Recipe video has been deleted from GCS');
+        if (file.publicFileId) {
+          await this.storageService.deleteFile(file.publicFileId);
+          span.addEvent('video_deleted_successfully');
+          this.logger.log('Recipe video has been deleted from GCS');
+        }
       } catch (error: any) {
-        console.error(`Failed to delete file from GCS: ${file.publicFileId}:`, error);
+        span.recordException(error);
+        span.setStatus({ code: SpanStatusCode.ERROR });
+        this.logger.error(`Failed to delete file from GCS: ${file.publicFileId}:`, { err: error });
         throw error;
+      } finally {
+        span.end();
       }
-    }
+    });
   }
 
   private async validateRecipe(recipeText: string | null): Promise<{
     isRecipe: boolean;
     hasInstructions: boolean;
-    hasIngredients: boolean
+    hasIngredients: boolean;
   }> {
     if (!recipeText) {
       return { isRecipe: false, hasInstructions: false, hasIngredients: false };
@@ -190,7 +360,10 @@ Text: {text}
     return prompt.pipe(this.baseLlm.withStructuredOutput(recipeValidationSchema));
   }
 
-  private getRecipeGeneratorLlmChain({ targetLanguage, useMetricSystem }: RecipeGeneratorOptions): Runnable {
+  private getRecipeGeneratorLlmChain({
+    targetLanguage,
+    useMetricSystem,
+  }: RecipeGeneratorOptions): Runnable {
     const prompt = ChatPromptTemplate.fromMessages([
       SystemMessagePromptTemplate.fromTemplate('You are a culinary expert.'),
       AIMessagePromptTemplate.fromTemplate(`
@@ -206,5 +379,4 @@ Text: {text}
 
     return prompt.pipe(this.baseLlm.withStructuredOutput(recipeSchema));
   }
-
 }

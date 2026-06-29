@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Schema, SchemaType } from '@google/generative-ai';
+import { Schema, Type } from '@google/genai';
 
 export const recipeSchema = z.object({
   title: z.string({ required_error: 'title is required' }).describe('The name of the recipe'),
@@ -11,55 +11,52 @@ export const recipeSchema = z.object({
       name: z.string().describe('Name of the recipe ingredient'),
       amount: z.string().describe('Amount of the ingredient'),
       measurementUnit: z.string().optional().describe(`Measurement unit of the ingredient`),
-    }),
+    })
   ),
 });
 
 export const recipeValidationSchema = z.object({
   isRecipe: z.boolean().describe('Is the text a cooking recipe?'),
-  hasIngredients: z.boolean().describe('Does the recipe contains cooking ingredients (at least one)'),
+  hasIngredients: z
+    .boolean()
+    .describe('Does the recipe contains cooking ingredients (at least one)'),
   hasInstructions: z.boolean().describe('Does the recipe contains instructions how to cook it'),
 });
 
 export const instructionsWithTimeSchema: Schema = {
-  type: SchemaType.OBJECT,
+  type: Type.OBJECT,
   properties: {
-    // instructions: {
-    //   type: SchemaType.ARRAY,
-    //   description: 'Sequentially step by step cooking instructions',
-    //   items: {
-    //     type: SchemaType.STRING,
-    //   },
-    // },
     instructions: {
-      type: SchemaType.STRING,
-      description: 'Step by step cooking instructions. Start each step with a new line and the step number (1, 2, 3, etc.)',
+      type: Type.STRING,
+      description:
+        'Single string with concise cooking instructions. Each step must be on its own line, start with the step number followed by a period, and describe exactly one visible cooking action.',
       example: `
-       1. Remove from heat and stir in a knob of butter and a generous amount of grated Parmesan cheese;
-       2. Begin adding the warm vegetable broth, one ladleful at a time, stirring continuously until each addition is absorbed before adding more. This process should take about 15-20 minutes;
-       3. Add the Arborio rice to the pan and toast for a couple of minutes, stirring constantly, until the grains are slightly translucent;
+1. Toast the Arborio rice in the pan until the grains are slightly translucent.
+2. Add warm vegetable broth one ladle at a time, stirring until each addition is absorbed.
+3. Remove from heat and stir in butter and grated Parmesan cheese.
       `,
     },
     timestamps: {
-      type: SchemaType.ARRAY,
-      description: 'Recipe video timestamps which correspond to cooking instructions described in "instructions" field.',
+      type: Type.ARRAY,
+      description:
+        'One timestamp object per instruction step. Step numbers must match the numbered lines in "instructions", be sorted in ascending order, and contain no duplicates.',
       items: {
-        type: SchemaType.OBJECT,
+        type: Type.OBJECT,
         properties: {
           step: {
-            type: SchemaType.NUMBER,
-            description: `Instruction's Step number`,
+            type: Type.INTEGER,
+            description: 'Instruction step number from the "instructions" field.',
           },
           startTime: {
-            type: SchemaType.STRING,
-            description: 'Start time of the current cooking step in format mm:ss',
+            type: Type.STRING,
+            description: 'Start time of the cooking step in the video using mm:ss format.',
           },
           endTime: {
-            type: SchemaType.STRING,
-            description: 'End time of the cooking step in format mm:ss',
+            type: Type.STRING,
+            description: 'End time of the cooking step in the video using mm:ss format.',
           },
         },
-        required: ['step'],
+        required: ['step', 'startTime', 'endTime'],
       },
     },
   },
@@ -67,25 +64,26 @@ export const instructionsWithTimeSchema: Schema = {
 };
 
 export const recipeTimestampsSchema: Schema = {
-  type: SchemaType.OBJECT,
+  type: Type.OBJECT,
   properties: {
     timestamps: {
-      type: SchemaType.ARRAY,
+      type: Type.ARRAY,
       description: 'Recipe video timestamps which correspond to cooking instructions.',
       items: {
-        type: SchemaType.OBJECT,
+        type: Type.OBJECT,
         properties: {
           step: {
-            type: SchemaType.NUMBER,
+            type: Type.NUMBER,
             description: 'Step number',
           },
           startTime: {
-            type: SchemaType.STRING,
+            type: Type.STRING,
             description: `Start time of the cooking step in a format mm:ss. Set to null if the step in not shown on the video.`,
           },
           endTime: {
-            type: SchemaType.STRING,
-            description: 'End time of the cooking step in a format mm:ss. Set to null if the step in not shown on the video.',
+            type: Type.STRING,
+            description:
+              'End time of the cooking step in a format mm:ss. Set to null if the step in not shown on the video.',
           },
         },
         required: ['step'],

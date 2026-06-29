@@ -1,6 +1,5 @@
-import { FileMetadataResponse } from '@google/generative-ai/server';
-
-export interface RecipeVideoMetadata extends Pick<FileMetadataResponse, 'mimeType' | 'uri'> {
+export interface RecipeVideoMetadata {
+  /** @deprecated fileId is no longer used, use publicFileId instead */
   fileId: string;
   fileName: string;
   url: string;
