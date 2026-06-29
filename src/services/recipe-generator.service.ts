@@ -251,9 +251,13 @@ export class RecipeGeneratorService {
             async (timestampSpan) => {
               try {
                 this.logger.log(`Generating timestamps`);
-                const result = await this.recipeInstructionsService.getTimestamps(
-                  generatedRecipe.instructions,
-                  videoFile
+                const result = await retry(
+                  () =>
+                    this.recipeInstructionsService.getTimestamps(
+                      generatedRecipe.instructions,
+                      videoFile
+                    ),
+                  { maxAttempts: 2 }
                 );
 
                 timestampSpan.setAttribute('timestamps.count', result.length);
