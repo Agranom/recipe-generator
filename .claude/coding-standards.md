@@ -342,7 +342,43 @@ try {
 
 ---
 
-## 6. Testing
+## 6. Comments
+
+Do not add comments that narrate what the code does. Reserve comments for decisions the code itself cannot express.
+
+**Comment when:**
+- A design choice was made for a non-obvious reason (architectural trade-off, performance constraint, external requirement).
+- Something intentionally looks wrong — a workaround, a quirk of a third-party API, a deliberate deviation from the normal pattern.
+- A constraint must be preserved by future editors ("Do not change the order — X depends on initialization sequence").
+
+**Do not comment:**
+- What the code does (the code should be self-explanatory).
+- Why you wrote something in the obvious, expected way.
+- Anything that duplicates the type signature or variable name.
+
+```ts
+// bad — narrates the code
+// Increment the retry counter
+retryCount++;
+
+// bad — obvious from the name
+// Returns true if the user is an admin
+function isAdmin(user: User): boolean { ... }
+
+// good — explains why two AI providers coexist
+// OpenAI (LangChain) handles text parsing; Gemini (Vertex AI) is used for
+// video understanding because it accepts gs:// URIs directly.
+// Do not consolidate — they serve different modalities.
+
+// good — documents a non-obvious constraint
+// Strip bytestart= / byteend= query params: Instagram adds them to limit
+// streaming range, which makes the video URL unplayable when downloaded whole.
+const cleanUrl = removeByteRangeParams(rawUrl);
+```
+
+---
+
+## 7. Testing
 
 - Unit tests mock at the service boundary (TypeDI / constructor injection), not at the HTTP layer.
 - Integration tests (`*.server.test.ts`) hit real external dependencies and load `.env.test`.
