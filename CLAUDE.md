@@ -4,7 +4,7 @@ Guidance for Claude Code. For project overview, setup, API reference, scripts, a
 
 ## Dependency Injection
 
-TypeDI (`@Service()` / `@Inject()`). `reflect-metadata` is imported as the very first line of `index.ts`; services are resolved via `Container.get(...)`. `tsconfig` has `experimentalDecorators` + `emitDecoratorMetadata` enabled. New services must be injected — never instantiated with `new` inside another class.
+TypeDI (`@Service()` / `@Inject()`). `instrumentation.ts` is imported as the very first line of `index.ts` (OTel must initialize before anything else); `reflect-metadata` is imported immediately after. Services are resolved via `Container.get(...)`. `tsconfig` has `experimentalDecorators` + `emitDecoratorMetadata` enabled. New services must be injected — never instantiated with `new` inside another class.
 
 Logger is registered manually in `index.ts` before the controller is resolved; inject it via `@Inject(LOGGER_TOKEN)`. Do not use `console` in new code.
 
@@ -20,6 +20,7 @@ Two AI providers are used deliberately: **OpenAI (LangChain)** for text parsing/
 
 ## Shared Utilities
 
+- **`shared/services/pino-logger.adapter.ts`** — Pino-based `Logger` implementation. Registered manually in `index.ts` as `LOGGER_TOKEN`. Configure log level via `LOG_LEVEL` env var; uses `pino-pretty` in non-production environments.
 - **`shared/services/google-storage.service.ts`** — GCS wrapper (upload/move/delete, gsutil URLs).
 - **`shared/utils/retry.util.ts`** — `retry(fn, { maxAttempts, delayMs, useExponentialBackoff })`. Wrap all external I/O here — LLM calls, GCS, scraping, Vertex AI.
 - **`constants/video-directories.ts`** — GCS staging vs published prefixes (single source of truth).
