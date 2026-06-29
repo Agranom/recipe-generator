@@ -3,7 +3,7 @@ import { instructionsWithTimeSchema, recipeTimestampsSchema } from '../constants
 import { RecipeTimestamp } from '../models/recipe.model';
 import { RecipeVideoMetadata } from '../models/recipe-metadata.model';
 import { uniqBy } from 'lodash';
-import { GoogleGenAI, MediaResolution } from '@google/genai';
+import { GoogleGenAI } from '@google/genai';
 import { GoogleStorageService } from '../shared/services/google-storage.service';
 import { tmpVideoDirectory } from '../shared/constants/video-directories';
 import { LOGGER_TOKEN } from '../shared/services/logger.service';
@@ -68,8 +68,6 @@ Requirements:
           maxOutputTokens: 4096,
           responseSchema: instructionsWithTimeSchema,
           responseMimeType: 'application/json',
-          thinkingConfig: { thinkingBudget: 0 },
-          mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW,
         },
       });
 
@@ -138,8 +136,6 @@ Requirements:
           maxOutputTokens: 4096,
           responseSchema: recipeTimestampsSchema,
           responseMimeType: 'application/json',
-          thinkingConfig: { thinkingBudget: 0 },
-          mediaResolution: MediaResolution.MEDIA_RESOLUTION_LOW,
         },
       });
       // TEMP DIAGNOSTIC — remove after measuring
