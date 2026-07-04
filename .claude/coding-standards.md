@@ -335,7 +335,7 @@ export class LlmInvocationError extends Error {
 try {
   await retry(() => llm.invoke(prompt), { maxAttempts: 3, useExponentialBackoff: true });
 } catch (err) {
-  this.logger.error({ err, prompt }, 'LLM invocation failed');
+  this.logger.error('LLM invocation failed', { err, prompt });
   throw new LlmInvocationError(`LLM call failed after retries: ${(err as Error).message}`);
 }
 ```
@@ -378,7 +378,126 @@ const cleanUrl = removeByteRangeParams(rawUrl);
 
 ---
 
-## 7. Testing
+## 7. Logging
+
+### Inject — Never `console`
+
+Always receive the logger via `@Inject(LOGGER_TOKEN)`. `console.*` is forbidden in service and controller code.
+
+```ts
+// bad
+console.log('Scraping post', url);
+console.error(err);
+
+// good
+@Service()
+class InstaScrapperService {
+  constructor(@Inject(LOGGER_TOKEN) private readonly logger: Logger) {}
+
+  async scrapePost(url: string): Promise<PostData> {
+    this.logger.info('Scraping Instagram post', { url });
+    // ...
+  }
+}
+```
+
+### Call Signature
+
+The `Logger` interface is `logger.level(message, context?)`. Always pass a **static string** as the message and an optional plain `Context` object as the second argument. Dynamic values belong in the context object, not in string interpolation.
+
+> The `PinoLoggerAdapter` internally remaps these to Pino's native `(object, message)` order — callers never see that detail.
+
+```ts
+// bad — dynamic message makes log aggregation and alerting harder
+this.logger.info(`Fetching recipe for postId=${postId}`);
+this.logger.error(`Failed after ${attempts} retries: ${err.message}`);
+
+// good — static message, structured context
+this.logger.info('Fetching recipe', { postId });
+this.logger.error('Failed to fetch recipe after retries', { err, attempts, postId });
+```
+
+### Log Levels
+
+| Level | When to use |
+|---|---|
+| `trace` | Step-by-step internals useful only during active debugging (stripped in production). |
+| `debug` | Diagnostic detail — intermediate values, branch decisions — disabled by default. |
+| `info` | Normal lifecycle events: service started, external call succeeded, key operation completed. |
+| `warn` | Recoverable anomaly: retried request succeeded, optional config missing, unexpected-but-safe branch. |
+| `error` | Unrecoverable failure or thrown error. Always include the `err` key so Pino serialises the stack. |
+| `fatal` | Process cannot continue; logged once before exit. |
+
+```ts
+// info — normal milestone
+this.logger.info('Video staged to GCS', { videoUrl, bucket });
+
+// warn — degraded but continuing
+this.logger.warn('Scrape attempt failed, retrying', { attempt, maxAttempts, url });
+
+// error — operation failed; pass err as a key so the stack trace is serialised
+this.logger.error('Could not scrape Instagram post', { err, postUrl });
+```
+
+### Where to Log
+
+Log at **service boundaries**, not deep inside helpers or utilities. A single entry-point log and a single outcome log per public method is the target.
+
+```ts
+// bad — logs scattered through a utility and its callers
+function stripByteRangeParams(url: string): string {
+  this.logger.debug('Stripping byte range params'); // utility should not log
+  // ...
+}
+
+// good — log in the service method that owns the operation
+async scrapePost(url: string): Promise<PostData> {
+  this.logger.info('Scraping Instagram post', { url });
+  const raw = await retry(() => this.fetchPost(url), { maxAttempts: 3 });
+  const post = this.normalise(raw);
+  this.logger.info('Post scraped', { postId: post.id, hasVideo: !!post.videoUrl });
+
+  return post;
+}
+```
+
+### Never Log Sensitive Data
+
+Strip credentials, tokens, personally-identifiable information (PII), and full request bodies before logging.
+
+```ts
+// bad
+this.logger.info('Calling ScrapeCreators', { apiKey: process.env.SCRAPECREATORS_API_KEY, headers });
+
+// good — log only what is safe
+this.logger.info('ScrapeCreators response received', { url, responseStatus });
+```
+
+### Error Logging Before Re-throw
+
+Log with `error` level (including the `err` key) immediately before re-throwing. Do not log the same error twice.
+
+```ts
+// bad — logs the error again after already logging it upstream
+try {
+  await this.instructions.generateInstructionsFromVideo(gsUri);
+} catch (err) {
+  this.logger.error('Instructions failed', { err }); // will be logged again by the global handler
+  throw err;
+}
+
+// good — log once, at the service that catches it, then wrap and re-throw
+try {
+  await retry(() => this.instructions.generateInstructionsFromVideo(gsUri), { maxAttempts: 2 });
+} catch (err) {
+  this.logger.error('Instruction generation failed after retries', { err, gsUri });
+  throw new InstructionGenerationError((err as Error).message);
+}
+```
+
+---
+
+## 8. Testing
 
 - Unit tests mock at the service boundary (TypeDI / constructor injection), not at the HTTP layer.
 - Integration tests (`*.server.test.ts`) hit real external dependencies and load `.env.test`.
