@@ -11,7 +11,7 @@ Logger is registered manually in `index.ts` before the controller is resolved; i
 ## Service Internals
 
 - **`recipe-generator.service.ts`** — orchestrator. Holds LangChain chains (`ChatOpenAI` + `withStructuredOutput`) for validation and parsing. Coordinates scraping, instruction generation, timestamp mapping, and video staging/publishing.
-- **`insta-scrapper.service.ts`** — tries strategies in order: GraphQL API → HTML/axios → Puppeteer (network interception + DOM). Strips `bytestart=`/`byteend=` params that make video URLs unplayable.
+- **`insta-scrapper.service.ts`** — fetches post metadata (description, video URL, image URL) via the ScrapeCreators Instagram API (single `axios` call, wrapped in `retry`). Strips `bytestart=`/`byteend=` params that make video URLs unplayable. Requires `SCRAPECREATORS_API_KEY`.
 - **`recipe-instructions.service.ts`** — Gemini (`gemini-2.5-flash`) via Vertex AI. Two modes: `generateInstructionsFromVideo` (no existing instructions — derives steps + timestamps from video) and `getTimestamps` (instructions exist — aligns them to time ranges). Reads video via `gs://` URI.
 - **`video-processing.service.ts`** — `preloadVideo` stages to GCS `tmp/` prefix; `publishVideo` moves to permanent prefix and makes public.
 - **`local-video-manager.service.ts`** — downloads a video URL to a local temp file and deletes it.

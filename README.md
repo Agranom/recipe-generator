@@ -6,7 +6,7 @@ Runs as an Express HTTP service and deploys to Google Cloud Run.
 
 ## Features
 
-- **Instagram scraping** with layered fallbacks: Instagram GraphQL API → HTML/`axios` → Puppeteer headless browser.
+- **Instagram scraping** via the ScrapeCreators API (single `axios` call).
 - **Recipe validation** — rejects posts that aren't recipes (via OpenAI through LangChain).
 - **Structured parsing** — extracts title, description, ingredients (with amounts/units), instructions, and portions.
 - **Video understanding** — derives step-by-step instructions and aligns them to video timestamps using Gemini (Vertex AI).
@@ -20,7 +20,7 @@ Runs as an Express HTTP service and deploys to Google Cloud Run.
 - **DI:** TypeDI (`reflect-metadata`)
 - **AI:** OpenAI via LangChain (text parsing/validation), Gemini `gemini-2.5-flash` via Vertex AI (video understanding)
 - **Storage:** Google Cloud Storage
-- **Scraping:** Puppeteer, axios
+- **Scraping:** ScrapeCreators API (via axios)
 - **Logging:** Pino
 - **Observability:** OpenTelemetry
 - **Testing:** Jest (`ts-jest`)
@@ -29,7 +29,7 @@ Runs as an Express HTTP service and deploys to Google Cloud Run.
 
 ```
 index.ts → RecipeGeneratorController → RecipeGeneratorService (orchestrator)
-                                          ├── InstaScrapperService        (scrape post: GraphQL → HTML → Puppeteer)
+                                          ├── InstaScrapperService        (scrape post via ScrapeCreators API)
                                           ├── RecipeInstructionsService   (Gemini/Vertex AI: instructions + timestamps)
                                           ├── VideoProcessingService      (stage/publish video to GCS)
                                           ├── LocalVideoManagerService    (download/cleanup temp video)
@@ -54,8 +54,6 @@ Two AI providers are used deliberately — **OpenAI** for text recipe parsing/va
 npm install
 ```
 
-`postinstall` downloads the Chrome binary for Puppeteer automatically.
-
 ### Configure environment
 
 Create a `.env` file in the project root (loaded by both `index.ts` and `instrumentation.ts`):
@@ -63,6 +61,7 @@ Create a `.env` file in the project root (loaded by both `index.ts` and `instrum
 | Variable | Required | Description |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | ✅ | LLM for recipe parsing/validation (`gpt-4o-mini` via LangChain). |
+| `SCRAPECREATORS_API_KEY` | ✅ | API key for ScrapeCreators Instagram scraping (constructor throws without it). |
 | `GOOGLE_API_KEY` | ✅ | Required by `RecipeInstructionsService` (constructor throws without it). |
 | `GOOGLE_CLOUD_BUCKET_NAME` | ✅ | GCS bucket for staged/published videos. |
 | `GOOGLE_APPLICATION_CREDENTIALS` | ✅ | Path to the service-account JSON for Vertex AI and GCS. |
@@ -71,7 +70,6 @@ Create a `.env` file in the project root (loaded by both `index.ts` and `instrum
 | `ORIGIN` | — | Allowed CORS origin. |
 | `LOG_LEVEL` | — | Pino log level (default `info`). |
 | `NODE_ENV` | — | `production` disables pretty logs. |
-| `IS_MAC_M1` | — | `true` points Puppeteer at the system Chrome locally. |
 
 Tests load from `.env.test` instead of `.env`. `check-env.js` fails the test run if `.env.test` is missing.
 
@@ -169,7 +167,7 @@ npm run deploy       # Deploy to Cloud Run (predeploy: lint + test + build)
 Run a single test:
 
 ```bash
-npx jest src/services/__tests__/insta-scrapper.server.test.ts
+npx jest src/services/__tests__/insta-scrapper.service.spec.ts
 # or by name
 npx jest -t "<test name>"
 ```
@@ -188,6 +186,6 @@ Deploys to Cloud Run service `recipe-generator` (region `us-west1`):
 npm run deploy
 ```
 
-The `Dockerfile` (`node:18-slim`) installs Chromium/Puppeteer system dependencies, builds via `npm run build`, and launches headless Chrome with `--no-sandbox`.
+The `Dockerfile` (`node:18-slim`) installs `ca-certificates`, builds via `npm run build`, and runs the Express service.
 
 **Service URL:** `https://recipe-generator-584335420311.us-west1.run.app`

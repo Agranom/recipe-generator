@@ -4,7 +4,6 @@
   "description": "NodeJS Service to generate recipes from the socials",
   "main": "index.ts",
   "scripts": {
-    "postinstall": "puppeteer browsers install chrome",
     "test": "jest --passWithNoTests --forceExit --detectOpenHandles",
     "test:watch": "jest --passWithNoTests --watch ",
     "lint": "eslint . --ext .js,.ts",
@@ -70,7 +69,6 @@
     "lodash": "^4.17.21",
     "mongodb": "^6.8.0",
     "pino": "^10.3.1",
-    "puppeteer": "^24.0.0",
     "reflect-metadata": "^0.2.2",
     "typedi": "^0.10.0",
     "zod": "^3.24.1"
