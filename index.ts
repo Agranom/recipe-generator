@@ -1,19 +1,13 @@
 import './instrumentation';
 import 'reflect-metadata';
 import * as dotenv from 'dotenv';
-import express from 'express';
 import { Container } from 'typedi';
-import { RecipeGeneratorController } from './src/controllers/recipe-generator.controller';
-import cors from 'cors';
 import { otelSDK } from './instrumentation';
 import { PinoLoggerAdapter } from './src/shared/services/pino-logger.adapter';
 import { LOGGER_TOKEN } from './src/shared/services/logger.service';
+import { createApp } from './src/app';
 
 dotenv.config({ path: '.env' });
-
-const app = express();
-app.use(express.json());
-app.use(cors({ origin: process.env.ORIGIN, methods: ['POST'] }))
 
 const port = process.env.PORT || 4000;
 
@@ -33,12 +27,8 @@ const port = process.env.PORT || 4000;
         },
       }
     }));
-  const controller = Container.get(RecipeGeneratorController);
+  const app = createApp();
   const logger = Container.get(LOGGER_TOKEN);
-
-  app.post('/getInstagramPostMetadata', controller.getInstagramPostMetadata.bind(controller));
-  app.post('/generateFromInstagram', controller.generateFromInstagram.bind(controller));
-  app.post('/deleteRecipeVideo', controller.deleteRecipeVideo.bind(controller));
 
   process.on('unhandledRejection', (error: Error, promise: Promise<unknown>) => {
     logger.error('Unhandled Rejection at Promise', { err: error, promise });

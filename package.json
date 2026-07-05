@@ -6,6 +6,7 @@
   "scripts": {
     "test": "jest --passWithNoTests --forceExit --detectOpenHandles",
     "test:watch": "jest --passWithNoTests --watch ",
+    "test:coverage": "jest --passWithNoTests --forceExit --detectOpenHandles --coverage",
     "lint": "eslint . --ext .js,.ts",
     "lint:fix": "eslint . --ext .js,.ts --fix",
     "prettier": "npx prettier src --check",
