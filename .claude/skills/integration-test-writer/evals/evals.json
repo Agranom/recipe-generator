@@ -1,0 +1,56 @@
+{
+  "skill_name": "integration-test-writer",
+  "evals": [
+    {
+      "id": 0,
+      "name": "get-metadata-endpoint",
+      "prompt": "Write an API integration test for the POST /getInstagramPostMetadata endpoint. Cover the happy path (a valid postUrl returns the mapped metadata) and the case where postUrl is missing in the body. Don't hit the real ScrapeCreators API. Put it with the other tests.",
+      "expected_output": "A *.server.test.ts that imports the Express app (guiding the createApp() extraction if needed), uses supertest to POST to /getInstagramPostMetadata, jest.mock's axios (not the service), asserts 200 + mapped body on the happy path and 400 'postUrl is required' when the body is empty, imports 'reflect-metadata' first, and runs green.",
+      "files": [],
+      "assertions": [
+        "Suite runs green: Jest reports all tests passing with 0 failures",
+        "Uses supertest to drive real HTTP requests against the Express app (request(app).post('/getInstagramPostMetadata'))",
+        "Imports/creates the app via a createApp()-style factory rather than duplicating full route wiring, and does NOT call app.listen in the test",
+        "Fakes the external boundary at the SDK leaf (jest.mock('axios')) rather than mocking the controller or RecipeGeneratorService",
+        "Covers the missing-postUrl validation case asserting HTTP 400 and the 'postUrl is required' text",
+        "Covers the happy path asserting HTTP 200 and the mapped response body (description/videoUrl/imageUrl)",
+        "Imports 'reflect-metadata' as the first import so TypeDI decorators load",
+        "Names tests by endpoint + scenario + expected outcome, not vague ('works'/'should be defined')"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "delete-video-endpoint",
+      "prompt": "I need API integration tests for POST /deleteRecipeVideo. It should return 204 on success and 500 when the storage layer throws. Make sure the test never touches real Google Cloud Storage.",
+      "expected_output": "A *.server.test.ts driving /deleteRecipeVideo via supertest through the real controller/service, faking @google-cloud/storage at the module boundary, asserting 204 (no body) on success and 500 when GCS throws, reflect-metadata first, runs green without network.",
+      "files": [],
+      "assertions": [
+        "Suite runs green: Jest reports all tests passing with 0 failures",
+        "Uses supertest against the Express app to POST /deleteRecipeVideo",
+        "Does not touch real Google Cloud Storage or the network (the GCS SDK / GoogleStorageService is faked)",
+        "Fakes at the boundary (jest.mock('@google-cloud/storage') or a Container.set service swap) rather than testing the controller in isolation with everything stubbed",
+        "Asserts HTTP 204 on the success path",
+        "Covers the failure path: storage throws maps to HTTP 500",
+        "Imports 'reflect-metadata' as the first import",
+        "Names tests by endpoint + scenario + expected outcome"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "generate-recipe-endpoint",
+      "prompt": "Add an integration test that hits POST /generateFromInstagram end to end through the Express app. It should return 200 with the generated recipe on the happy path, and 500 if generation fails. It must not call OpenAI or Gemini for real, and it should be fast.",
+      "expected_output": "A *.server.test.ts driving /generateFromInstagram via supertest, faking the LLM SDKs (@langchain/openai and/or @google/genai) at the module boundary so real service/controller code runs, asserting 200 + recipe body on success and 500 on failure, keeping it fast (fake timers if a rejecting boundary triggers retry backoff), reflect-metadata first, runs green.",
+      "files": [],
+      "assertions": [
+        "Suite runs green: Jest reports all tests passing with 0 failures",
+        "Uses supertest against the Express app to POST /generateFromInstagram",
+        "Prevents any real OpenAI/Gemini/network call by faking the LLM SDK module(s) at the boundary (not by stubbing the whole RecipeGeneratorService, ideally)",
+        "Asserts HTTP 200 and a recipe response body on the happy path",
+        "Covers the failure path mapping to HTTP 500",
+        "Keeps the error path fast (does not wait on real retry() setTimeout delays — e.g. uses fake timers or a single rejection) if applicable",
+        "Imports 'reflect-metadata' as the first import",
+        "Names tests by endpoint + scenario + expected outcome"
+      ]
+    }
+  ]
+}
